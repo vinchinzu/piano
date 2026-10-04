@@ -1,4 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { GuitarFretboard } from '../Guitar/GuitarFretboard';
+import { defaultGuitarSettings, resolveGuitarPositions, type GuitarPosition, type GuitarSettings } from '../../models/guitar';
+import React, { useEffect, useState } from 'react';
 import {
   GENERAL_MIDI_DRUM_NAMES,
   midiToPianoKey,
@@ -15,7 +17,7 @@ import {
 import './NoteInput.css';
 
 interface NoteInputProps {
-  onAddNote: (keys: string[], clef: 'treble' | 'bass') => boolean;
+  onAddNote: (keys: string[], clef: 'treble' | 'bass', positions?: (GuitarPosition | null)[]) => boolean;
   onUpdateSelectedKeys: (keys: string[]) => void;
   selectedNote: NoteEntry | null;
   session?: {
@@ -26,15 +28,21 @@ interface NoteInputProps {
   onSessionCommit: () => void;
   onSessionCancel: () => void;
   activePlaybackKeys: string[];
+  /** Hide editor selection lighting while the keyboard is showing score guidance. */
+  showPlaybackGuidance: boolean;
   instrumentSound: InstrumentSound;
   synthControls: SynthControls;
   onInstrumentSoundChange: (sound: InstrumentSound) => void;
   onSynthControlsChange: (controls: SynthControls) => void;
   onPreviewNotes: (keys: string[]) => void;
   showAllNoteNames: boolean;
+  preferFlatLabels?: boolean;
   trackKind: TrackKind;
   keySignature: string;
   recordingEnabled: boolean;
+  instrumentMode?: 'piano' | 'guitar';
+  guitarSettings?: GuitarSettings;
+  activeGuitarPositions?: (GuitarPosition | null)[];
   /** When set, draw only this MIDI span instead of the full 88 keys. */
   midiRange?: { start: number; end: number } | null;
 }
@@ -121,63 +129,44 @@ export const NoteInput: React.FC<NoteInputProps> = ({
   onSessionCommit,
   onSessionCancel,
   activePlaybackKeys,
+  showPlaybackGuidance,
   instrumentSound,
   synthControls,
   onInstrumentSoundChange,
   onSynthControlsChange,
   onPreviewNotes,
   showAllNoteNames,
+  preferFlatLabels = false,
   trackKind,
   keySignature,
   recordingEnabled,
   midiRange,
+  instrumentMode,
+  guitarSettings = defaultGuitarSettings(),
+  activeGuitarPositions = [],
 }) => {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(
     () => getSelectedPianoKeys(selectedNote, keySignature),
   );
   const [isChordMode, setIsChordMode] = useState(Boolean(session || (selectedNote && !selectedNote.isRest)));
 
+  const isGuitar = instrumentMode === 'guitar';
+  const inputName = isGuitar ? 'fretboard' : 'piano';
   const playingKeys = new Set(activePlaybackKeys);
-  const playbackKeyList = activePlaybackKeys.join('\n');
-  const fadeTimers = useRef<Map<string, number>>(new Map());
-  const [fadingKeys, setFadingKeys] = useState<string[]>([]);
-  const [previousPlaybackKeyList, setPreviousPlaybackKeyList] = useState(playbackKeyList);
-  if (playbackKeyList !== previousPlaybackKeyList) {
-    const nextKeys = playbackKeyList ? playbackKeyList.split('\n') : [];
-    const next = new Set(nextKeys);
-    const previous = previousPlaybackKeyList ? previousPlaybackKeyList.split('\n') : [];
-    const released = previous.filter((key) => !next.has(key));
-    setPreviousPlaybackKeyList(playbackKeyList);
-    setFadingKeys([...new Set([
-      ...fadingKeys.filter((key) => !next.has(key)),
-      ...released,
-    ])]);
-  }
-  useEffect(() => {
-    const active = new Set(fadingKeys);
-    fadeTimers.current.forEach((timer, key) => {
-      if (active.has(key)) return;
-      window.clearTimeout(timer);
-      fadeTimers.current.delete(key);
-    });
-    fadingKeys.forEach((key) => {
-      if (fadeTimers.current.has(key)) return;
-      const timer = window.setTimeout(() => {
-        if (fadeTimers.current.get(key) !== timer) return;
-        fadeTimers.current.delete(key);
-        setFadingKeys((current) => current.filter((item) => item !== key));
-      }, 900);
-      fadeTimers.current.set(key, timer);
-    });
-  }, [fadingKeys]);
-  useEffect(() => () => {
-    fadeTimers.current.forEach((timer) => window.clearTimeout(timer));
-    fadeTimers.current.clear();
-  }, []);
+  const isKeySelected = (note: string) => !showPlaybackGuidance && selectedKeys.has(note);
+  const isKeyPressed = (note: string) => showPlaybackGuidance
+    ? playingKeys.has(note)
+    : selectedKeys.has(note);
   const isPercussion = trackKind === 'percussion';
-  const visibleKeys = midiRange
+  const keysInRange = midiRange
     ? ALL_KEYS.filter((key) => key.midi >= midiRange.start && key.midi <= midiRange.end)
     : ALL_KEYS;
+  const flatNames: Record<number, string> = { 1: 'D♭', 3: 'E♭', 6: 'G♭', 8: 'A♭', 10: 'B♭' };
+  const visibleKeys = preferFlatLabels
+    ? keysInRange.map((key) => key.isBlack
+      ? { ...key, label: `${flatNames[key.midi % 12]}${Math.floor(key.midi / 12) - 1}` }
+      : key)
+    : keysInRange;
   const whiteKeys = visibleKeys.filter((key) => !key.isBlack);
   const blackKeys = visibleKeys.filter((key) => key.isBlack);
   const whiteKeyCount = whiteKeys.length;
@@ -203,7 +192,7 @@ export const NoteInput: React.FC<NoteInputProps> = ({
     if (keys.size === 0) return;
     const sorted = sortPianoKeys(keys);
     const octave = Number(sorted[0].split('/')[1]);
-    const clef = octave >= 4 ? 'treble' : 'bass';
+    const clef = isGuitar || octave >= 4 ? 'treble' : 'bass';
     if (!onAddNote(sorted, clef)) return;
     setSelectedKeys(new Set());
     setIsChordMode(false);
@@ -240,8 +229,8 @@ export const NoteInput: React.FC<NoteInputProps> = ({
   return (
     <div className="note-input">
       <div className="note-input-header">
-        <div className="synth-panel" aria-label="Keyboard synthesizer controls">
-          <span className="synth-title">Keyboard Synth</span>
+        <div className="synth-panel" aria-label="Instrument sound controls">
+          <span className="synth-title">{isGuitar ? 'Nylon Guitar' : 'Keyboard Synth'}</span>
           <label className="synth-preset-label">
             Preset
             <select
@@ -283,14 +272,14 @@ export const NoteInput: React.FC<NoteInputProps> = ({
           {session && <span className="composer-target">{session.label}</span>}
           <span className="selection-hint">
             {!recordingEnabled
-              ? 'Free Play · Keyboard notes make sound without changing the score.'
+              ? 'Free Play · Notes make sound without changing the score.'
               : selectedNote && !session && !selectedNote.isRest
-                ? `${selectedPitchSummary} selected · Click a piano key to edit this note${selectedKeys.size > 1 ? ' or chord' : ''}.`
+                ? `${selectedPitchSummary} selected · Click the ${inputName} to edit this note${selectedKeys.size > 1 ? ' or chord' : ''}.`
               : selectedKeys.size > 0
               ? `${session?.mode === 'edit' ? selectedPitchSummary : `${selectedKeys.size} note${selectedKeys.size > 1 ? 's' : ''}`} ${session?.mode === 'add' ? 'active in the bar' : 'selected'}${session ? ' · Press Enter to finish' : ''}`
               : isChordMode
                 ? session?.mode === 'add'
-                  ? 'Click piano keys to add them live. Click an active key to remove it.'
+                  ? `Click the ${inputName} to add notes live. Click an active note to remove it.`
                   : 'Choose the notes that should sound together.'
                 : 'Click a key to add a note. Right-click a bar to add multiple notes.'}
           </span>
@@ -321,15 +310,25 @@ export const NoteInput: React.FC<NoteInputProps> = ({
           )}
         </div>
       </div>
-      <div className={`piano-keyboard ${isPercussion ? 'percussion-keyboard' : ''} ${midiRange ? 'piano-keyboard-compact' : ''}`}>
+      {isGuitar ? <GuitarFretboard
+        profile={guitarSettings.profile}
+        positions={showPlaybackGuidance ? activeGuitarPositions : selectedNote ? resolveGuitarPositions(selectedNote, keySignature, guitarSettings) : []}
+        playing={showPlaybackGuidance}
+        onPress={(key, position) => {
+          onPreviewNotes([key]);
+          if (!recordingEnabled) return;
+          if (session || isChordMode || selectedKeys.size > 0) toggleKey(key);
+          else onAddNote([key], 'treble', [position]);
+        }}
+      /> : <div className={`piano-keyboard ${showPlaybackGuidance ? 'playback-guidance' : ''} ${isPercussion ? 'percussion-keyboard' : ''} ${midiRange ? 'piano-keyboard-compact' : ''}`}>
         <div className="piano-keys-area" style={{ ['--white-key-count' as string]: whiteKeyCount }}>
           <div className="piano-white-keys">
             {whiteKeys.map((key) => (
               <button
                 type="button"
                 key={key.note}
-                className={`piano-white-key ${selectedKeys.has(key.note) ? 'selected' : ''} ${playingKeys.has(key.note) ? 'playing' : ''} ${!playingKeys.has(key.note) && fadingKeys.includes(key.note) ? 'fading' : ''} ${key.note.startsWith('c/') ? 'c-marker' : ''} ${isPercussion && !GENERAL_MIDI_DRUM_NAMES[key.midi] ? 'drum-unused' : ''}`}
-                aria-pressed={selectedKeys.has(key.note)}
+                className={`piano-white-key ${isKeySelected(key.note) ? 'selected' : ''} ${playingKeys.has(key.note) ? 'playing' : ''} ${key.note.startsWith('c/') ? 'c-marker' : ''} ${isPercussion && !GENERAL_MIDI_DRUM_NAMES[key.midi] ? 'drum-unused' : ''}`}
+                aria-pressed={isKeyPressed(key.note)}
                 disabled={isPercussion && !GENERAL_MIDI_DRUM_NAMES[key.midi]}
                 aria-label={isPercussion ? GENERAL_MIDI_DRUM_NAMES[key.midi] ?? key.label : key.label}
                 onPointerDown={(event) => {
@@ -360,9 +359,9 @@ export const NoteInput: React.FC<NoteInputProps> = ({
                   <button
                     type="button"
                     key={key.note}
-                  className={`piano-black-key ${selectedKeys.has(key.note) ? 'selected' : ''} ${playingKeys.has(key.note) ? 'playing' : ''} ${!playingKeys.has(key.note) && fadingKeys.includes(key.note) ? 'fading' : ''} ${isPercussion && !GENERAL_MIDI_DRUM_NAMES[key.midi] ? 'drum-unused' : ''}`}
+                  className={`piano-black-key ${isKeySelected(key.note) ? 'selected' : ''} ${playingKeys.has(key.note) ? 'playing' : ''} ${isPercussion && !GENERAL_MIDI_DRUM_NAMES[key.midi] ? 'drum-unused' : ''}`}
                   style={{ left: `${((key.whiteBoundary - firstWhiteBoundary) / whiteKeyCount) * 100}%` }}
-                  aria-pressed={selectedKeys.has(key.note)}
+                  aria-pressed={isKeyPressed(key.note)}
                   disabled={isPercussion && !GENERAL_MIDI_DRUM_NAMES[key.midi]}
                   aria-label={isPercussion ? GENERAL_MIDI_DRUM_NAMES[key.midi] ?? key.label : key.label}
                   onPointerDown={(event) => {
@@ -389,7 +388,7 @@ export const NoteInput: React.FC<NoteInputProps> = ({
             })}
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   );
 };

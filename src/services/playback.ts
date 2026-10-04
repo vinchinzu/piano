@@ -1,6 +1,6 @@
+import { createNylonStringSamples } from './nylonGuitar';
 import {
   DEFAULT_TRACK_SYNTH_CONTROLS,
-  midiToPianoKey,
   pianoKeyToMidi,
   type Dynamic,
   type InstrumentSound,
@@ -10,6 +10,11 @@ import {
   type StaffClef,
   type SynthControls,
 } from '../models/song';
+import {
+  emptyPlaybackVisualState,
+  PlaybackVisualTimeline,
+  type PlaybackVisualState,
+} from './playbackVisuals';
 import {
   getKeySignatureAccidental,
   getMeasureCapacity,
@@ -37,6 +42,7 @@ export const INSTRUMENT_OPTIONS: ReadonlyArray<{ value: InstrumentSound; label: 
   { value: 'choir-aahs', label: 'Choir Aahs' },
   { value: 'synth-lead', label: 'Synth Lead' },
   { value: 'synth-brass', label: 'Synth Brass' },
+  { value: 'nylon-guitar', label: 'Nylon Guitar' },
   { value: 'guitar', label: 'Guitar' },
   { value: 'bass', label: 'Bass' },
   { value: 'organ', label: 'Organ' },
@@ -51,8 +57,7 @@ export interface PlaybackCursorState {
 }
 
 type ToneModule = typeof import('tone');
-type NotesCallback = (measureIdx: number, noteIds: string[]) => void;
-type ActiveKeysCallback = (keys: string[]) => void;
+type VisualStateCallback = (state: PlaybackVisualState) => void;
 type StopCallback = () => void;
 
 interface PlaybackOutput {
@@ -69,47 +74,14 @@ interface DrumPlaybackOutput extends PlaybackOutput {
   triggerDrums(midi: number[], time: number, velocity: number): void;
 }
 
-interface VisualStart {
-  trackId: string;
-  noteId: string;
-  measureIdx: number;
-  pianoKeys: string[];
-  isRest: boolean;
-}
-
-interface VisualStop {
-  trackId: string;
-  noteId?: string;
-  pianoKeys: string[];
-}
-
-interface VisualEvent {
-  starts: VisualStart[];
-  stops: VisualStop[];
-}
-
-function vexKeyToNote(key: string, accidental: string | null | undefined, keySignature: string): string {
+function vexKeyToNote(key: string, accidental: string | null | undefined, keySignature: string, octaveOffset = 0): string {
   const [noteName, octave] = key.split('/');
   const embeddedAccidental = noteName.slice(1);
   const signatureAccidental = getKeySignatureAccidental(keySignature, noteName);
   const effectiveAccidental = accidental === 'n'
     ? ''
     : (accidental ?? embeddedAccidental) || signatureAccidental || '';
-  return `${noteName[0].toUpperCase()}${effectiveAccidental}${octave}`;
-}
-
-function toneNoteToPianoKey(note: string): string {
-  const match = /^([A-G])([#b]?)(-?\d+)$/.exec(note);
-  if (!match) return note.toLowerCase().replace(/(-?\d+)$/, '/$1');
-  const [, letter, accidental, octaveText] = match;
-  const pitchClasses: Record<string, number> = {
-    C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11,
-  };
-  const sharpNames = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b'];
-  const accidentalOffset = accidental === '#' ? 1 : accidental === 'b' ? -1 : 0;
-  const midi = (Number(octaveText) + 1) * 12 + pitchClasses[letter] + accidentalOffset;
-  const normalizedPitch = ((midi % 12) + 12) % 12;
-  return `${sharpNames[normalizedPitch]}/${Math.floor(midi / 12) - 1}`;
+  return `${noteName[0].toUpperCase()}${effectiveAccidental}${Number(octave) + octaveOffset}`;
 }
 
 function durationToSeconds(duration: string, tempo: number, dotted?: boolean): number {
@@ -163,10 +135,10 @@ export class PlaybackEngine {
   private activeOutputs = new Set<PlaybackOutput>();
   private trackOutputs = new Map<string, PlaybackOutput>();
   private state: 'stopped' | 'playing' | 'paused' = 'stopped';
-  private loopEnabled = false;
+  private pausedVisualSeconds = 0;
   private loopEnd = 0;
   private visualTrackId: string | null = null;
-  private visualStateVersion = 0;
+  private visualTimeline: PlaybackVisualTimeline | null = null;
   private soloActiveTrack = false;
   private mutedTrackIds = new Set<string>();
   private instrumentRequest = 0;
@@ -176,8 +148,7 @@ export class PlaybackEngine {
     startTime: number;
     endTime: number;
   }> = [];
-  private onNotesCallback?: NotesCallback;
-  private onActiveKeysCallback?: ActiveKeysCallback;
+  private onVisualStateCallback?: VisualStateCallback;
   private onStopCallback?: StopCallback;
 
   private async getTone(): Promise<ToneModule> {
@@ -271,6 +242,23 @@ export class PlaybackEngine {
   ): PlaybackOutput {
     const existing = this.synths.get(sound);
     if (existing) return existing;
+
+    if (sound === 'nylon-guitar') {
+      const context = Tone.getContext();
+      const urls: Record<string, AudioBuffer> = {};
+      for (let midi = 40; midi <= 76; midi += 3) {
+        const samples = createNylonStringSamples(midi, context.sampleRate);
+        const buffer = context.createBuffer(1, samples.length, context.sampleRate);
+        buffer.getChannelData(0).set(samples);
+        urls[Tone.Frequency(midi, 'midi').toNote()] = buffer;
+      }
+      const sampler = new Tone.Sampler({ urls, attack: 0, release: 0.25, curve: 'exponential' })
+        .connect(this.ensureMasterChain(Tone));
+      sampler.volume.value = -4;
+      const output = sampler as unknown as PlaybackOutput;
+      this.synths.set(sound, output);
+      return output;
+    }
 
     const settings = sound === 'electric-keys' ? {
           oscillator: { type: 'triangle' as const },
@@ -410,7 +398,7 @@ export class PlaybackEngine {
     if (request !== this.instrumentRequest) return;
     if (this.activeOutput !== output && this.state !== 'stopped') {
       this.activeOutput?.releaseAll();
-      this.onActiveKeysCallback?.([]);
+      this.refreshVisualState();
     }
     this.activeOutput = output;
   }
@@ -429,7 +417,7 @@ export class PlaybackEngine {
     if (this.visualTrackId === trackId) this.activeOutput = output;
   }
 
-  async previewNotes(keys: string[], sound: InstrumentSound): Promise<void> {
+  async previewNotes(keys: string[], sound: InstrumentSound, octaveOffset = 0): Promise<void> {
     if (keys.length === 0) return;
     const Tone = await this.getTone();
     const output = await this.ensureInstrument(sound);
@@ -442,38 +430,48 @@ export class PlaybackEngine {
       );
       return;
     }
-    const toneNotes = keys.map((key) => vexKeyToNote(key, null, 'C'));
+    const toneNotes = keys.map((key) => vexKeyToNote(key, null, 'C', octaveOffset));
     const duration = 0.16 + this.controls.sustain * 1.35;
     output.triggerAttackRelease(toneNotes, duration, Tone.now(), 0.72);
   }
 
-  onNotes(callback: NotesCallback) { this.onNotesCallback = callback; }
-  onActiveKeys(callback: ActiveKeysCallback) { this.onActiveKeysCallback = callback; }
+  onVisualState(callback?: VisualStateCallback) { this.onVisualStateCallback = callback; }
   onStopped(callback: StopCallback) { this.onStopCallback = callback; }
+
+  private getVisualSeconds(): number {
+    if (this.state === 'paused') return this.pausedVisualSeconds;
+    if (!this.tone) return 0;
+    return this.tone.getTransport().getSecondsAtTime(
+      this.tone.immediate() + this.tone.getDraw().anticipation,
+    );
+  }
+
+  private refreshVisualState(seconds = this.getVisualSeconds()): void {
+    const state = this.state !== 'stopped'
+      ? this.visualTimeline?.getState(seconds, this.visualTrackId)
+      : null;
+    this.onVisualStateCallback?.(state ?? emptyPlaybackVisualState(
+      this.getCursorState()?.measureIdx ?? 0,
+    ));
+  }
 
   setActiveTrack(trackId: string): void {
     this.visualTrackId = trackId;
-    this.visualStateVersion++;
     if (this.soloActiveTrack) this.activeOutputs.forEach((output) => output.releaseAll());
-    this.onNotesCallback?.(this.getCursorState()?.measureIdx ?? 0, []);
-    this.onActiveKeysCallback?.([]);
+    this.refreshVisualState();
   }
 
   setSoloActiveTrack(enabled: boolean): void {
     this.soloActiveTrack = enabled;
-    this.visualStateVersion++;
     this.activeOutputs.forEach((output) => output.releaseAll());
-    this.onNotesCallback?.(this.getCursorState()?.measureIdx ?? 0, []);
-    this.onActiveKeysCallback?.([]);
+    this.refreshVisualState();
   }
 
   setTrackMuted(trackId: string, muted: boolean): void {
     if (muted) this.mutedTrackIds.add(trackId);
     else this.mutedTrackIds.delete(trackId);
-    this.visualStateVersion++;
     this.activeOutputs.forEach((output) => output.releaseAll());
-    this.onNotesCallback?.(this.getCursorState()?.measureIdx ?? 0, []);
-    this.onActiveKeysCallback?.([]);
+    this.refreshVisualState();
   }
 
   async play(
@@ -488,7 +486,6 @@ export class PlaybackEngine {
     const Tone = await this.getTone();
     const activeTrack = song.tracks.find((track) => track.id === activeTrackId) ?? song.tracks[0];
     this.visualTrackId = activeTrack.id;
-    this.visualStateVersion++;
     this.soloActiveTrack = soloActiveTrack;
     this.mutedTrackIds = new Set(song.tracks.filter((track) => track.muted).map((track) => track.id));
     const tracksToPlay = song.tracks;
@@ -508,7 +505,6 @@ export class PlaybackEngine {
     transport.cancel();
     transport.loop = false;
     transport.seconds = 0;
-    this.loopEnabled = loop;
 
     interface ScheduledNote {
       note: NoteEntry;
@@ -529,23 +525,9 @@ export class PlaybackEngine {
     const playbackOrder = getPlaybackOrder(conductorTrack)
       .filter((measureIndex) => measureIndex >= startMeasure);
     const measureDuration = getMeasureCapacity(song.timeSignature) * (60 / song.tempo);
-    const visualEvents = new Map<number, VisualEvent>();
-    const activeKeyCounts = new Map<string, number>();
-    const activeNoteIds = new Set<string>();
-    let visualStateTrackId = activeTrack.id;
-    let visualStateVersion = this.visualStateVersion;
     const notesByVoice = new Map<string, ScheduledNote[]>();
     const allScheduledNotes: ScheduledNote[] = [];
     this.cursorSegments = [];
-
-    const eventAt = (eventTime: number): VisualEvent => {
-      const key = Math.round(eventTime * 1_000_000);
-      const existing = visualEvents.get(key);
-      if (existing) return existing;
-      const event = { starts: [], stops: [] };
-      visualEvents.set(key, event);
-      return event;
-    };
 
     for (const measureIndex of playbackOrder) {
       const rawNotes: Array<ScheduledNote & { rawStart: number; rawDuration: number }> = [];
@@ -684,35 +666,9 @@ export class PlaybackEngine {
           currentVelocity * (hasAccent ? 1.18 : 1) * Math.max(0.05, entry.track.synthControls.volume),
         );
         const toneNotes = note.keys.map((key, index) => (
-          vexKeyToNote(key, note.accidentals?.[index], song.keySignature)
+          vexKeyToNote(key, note.accidentals?.[index], song.keySignature, entry.track.instrumentMode === 'guitar' ? -1 : 0)
         ));
-        const pianoKeys = note.drumMidi
-          ? note.drumMidi.map(midiToPianoKey)
-          : toneNotes.map(toneNoteToPianoKey);
-
-        eventAt(entry.startTime).starts.push({
-          trackId: entry.track.id,
-          noteId: note.id,
-          measureIdx: entry.measureIdx,
-          pianoKeys: !note.isRest && !isTieContinuation ? pianoKeys : [],
-          isRest: Boolean(note.isRest),
-        });
-
-        if (!note.isRest) {
-          const visualEnd = pedalRelease
-            ? Math.max(entry.startTime + entry.duration, pedalRelease)
-            : entry.startTime + entry.duration;
-          eventAt(visualEnd).stops.push({
-            trackId: entry.track.id,
-            noteId: note.id,
-            pianoKeys: [],
-          });
-        }
-        if (!note.isRest && !isTieContinuation) {
-          eventAt(entry.startTime + actualDuration).stops.push({
-            trackId: entry.track.id,
-            pianoKeys,
-          });
+        if (!note.isRest && !note.isSpacer && !isTieContinuation) {
           transport.schedule((scheduledTime) => {
             if (this.state !== 'playing') return;
             const shouldPlay = this.soloActiveTrack
@@ -734,55 +690,26 @@ export class PlaybackEngine {
       });
     });
 
-    let visualMeasureIdx = playbackOrder[0] ?? 0;
-    [...visualEvents.entries()]
-      .sort(([a], [b]) => a - b)
-      .forEach(([eventKey, event]) => {
-        const eventTime = eventKey / 1_000_000;
-        transport.schedule((scheduledTime) => {
-          if (this.state !== 'playing') return;
-          Tone.getDraw().schedule(() => {
-            if (this.state !== 'playing' || playGeneration !== this.generation) return;
-            const visualTrackId = this.visualTrackId;
-            if (
-              visualStateTrackId !== visualTrackId ||
-              visualStateVersion !== this.visualStateVersion
-            ) {
-              activeNoteIds.clear();
-              activeKeyCounts.clear();
-              visualStateTrackId = visualTrackId ?? '';
-              visualStateVersion = this.visualStateVersion;
-            }
-            const stops = event.stops.filter((stop) => stop.trackId === visualTrackId);
-            const starts = event.starts.filter((start) => start.trackId === visualTrackId);
-            for (const stop of stops) {
-              if (stop.noteId) activeNoteIds.delete(stop.noteId);
-              for (const key of stop.pianoKeys) {
-                const count = (activeKeyCounts.get(key) ?? 0) - 1;
-                if (count > 0) activeKeyCounts.set(key, count);
-                else activeKeyCounts.delete(key);
-              }
-            }
-            for (const start of starts) {
-              visualMeasureIdx = start.measureIdx;
-              if (!start.isRest) activeNoteIds.add(start.noteId);
-              for (const key of start.pianoKeys) {
-                activeKeyCounts.set(key, (activeKeyCounts.get(key) ?? 0) + 1);
-              }
-            }
-            if (stops.some((stop) => stop.pianoKeys.length > 0) || starts.some((start) => start.pianoKeys.length > 0)) {
-              this.onActiveKeysCallback?.([...activeKeyCounts.keys()]);
-            }
-            if (starts.length > 0 || stops.some((stop) => stop.noteId)) {
-              this.onNotesCallback?.(visualMeasureIdx, [...activeNoteIds]);
-            }
-          }, scheduledTime);
-        }, eventTime);
-      });
+    this.visualTimeline = new PlaybackVisualTimeline(
+      allScheduledNotes.map((entry) => ({ ...entry, trackId: entry.track.id })),
+      song.keySignature,
+    );
+    this.visualTimeline.eventTimes.forEach((eventTime) => {
+      transport.schedule((scheduledTime) => {
+        if (this.state !== 'playing') return;
+        Tone.getDraw().schedule(() => {
+          if (this.state !== 'playing' || playGeneration !== this.generation) return;
+          this.refreshVisualState();
+        }, scheduledTime);
+      }, eventTime);
+    });
 
     transport.schedule((scheduledTime) => {
       Tone.getDraw().schedule(() => {
-        if (playGeneration !== this.generation) return;
+        if (
+          this.state !== 'playing' || playGeneration !== this.generation ||
+          this.getVisualSeconds() < time
+        ) return;
         this.stop();
         this.onStopCallback?.();
       }, scheduledTime);
@@ -793,18 +720,6 @@ export class PlaybackEngine {
     transport.loopEnd = time;
     transport.loop = loop;
 
-    // Reset visual key accounting immediately before a new loop begins. Notes
-    // scheduled at beat zero then establish the next cycle's active keys.
-    if (time > 0.002) {
-      transport.schedule((scheduledTime) => {
-        if (!this.loopEnabled) return;
-        Tone.getDraw().schedule(() => {
-          activeKeyCounts.clear();
-          this.onActiveKeysCallback?.([]);
-        }, scheduledTime);
-      }, time - 0.001);
-    }
-
     // Give the audio graph a short, deterministic lead-in after loading. This
     // avoids asking the first sampled note to sound on the same frame that the
     // browser resumes its audio context.
@@ -813,19 +728,21 @@ export class PlaybackEngine {
 
   pause() {
     if (this.state !== 'playing' || !this.tone) return;
+    this.pausedVisualSeconds = this.getVisualSeconds();
     this.state = 'paused';
     this.tone.getTransport().pause();
     this.activeOutputs.forEach((output) => output.releaseAll());
+    // Keep the last displayed score/keyboard snapshot frozen while paused.
   }
 
   resume() {
     if (this.state !== 'paused' || !this.tone) return;
     this.state = 'playing';
     this.tone.getTransport().start('+0.04');
+    this.refreshVisualState();
   }
 
   setLoop(enabled: boolean): void {
-    this.loopEnabled = enabled;
     if (!this.tone || this.loopEnd <= 0) return;
     const transport = this.tone.getTransport();
     transport.loopStart = 0;
@@ -842,19 +759,18 @@ export class PlaybackEngine {
     this.activeOutputs.forEach((output) => output.releaseAll());
     this.activeOutputs.clear();
     this.trackOutputs.clear();
-    this.onActiveKeysCallback?.([]);
     this.cursorSegments = [];
+    this.visualTimeline = null;
+    this.refreshVisualState();
   }
 
   getCursorState(): PlaybackCursorState | null {
     if (!this.tone || this.cursorSegments.length === 0) return null;
-    const transport = this.tone.getTransport();
-    const draw = this.tone.getDraw();
     // Transport.seconds is evaluated with Tone's scheduler look-ahead (100 ms
     // by default), which makes a DOM playhead visibly lead audio and Draw-based
     // note highlights. Use the same immediate audio clock and anticipation that
     // Tone.Draw uses for visual callbacks instead.
-    const seconds = transport.getSecondsAtTime(this.tone.immediate() + draw.anticipation);
+    const seconds = this.getVisualSeconds();
     const segment = this.cursorSegments.find((candidate) => (
       seconds >= candidate.startTime && seconds < candidate.endTime
     )) ?? (seconds < this.cursorSegments[0].startTime ? this.cursorSegments[0] : null);

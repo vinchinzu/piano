@@ -5,7 +5,34 @@ import {
   getPlaybackCursorX,
   getRenderedVoiceLabel,
   shouldUsePlaybackAnchor,
+  getFocusMeasureStart,
+  getFocusAccidentalHelpers,
 } from './renderer';
+import { type NoteEntry } from '../models/song';
+
+describe('focus score guidance', () => {
+  it('keeps two-bar pages stable and clamps the last page', () => {
+    expect([0, 1, 2, 3, 4].map((index) => getFocusMeasureStart(index, 5))).toEqual([0, 0, 2, 2, 4]);
+    expect(getFocusMeasureStart(-1, 5)).toBe(0);
+    expect(getFocusMeasureStart(99, 5)).toBe(4);
+    expect(getFocusMeasureStart(0, 0)).toBe(0);
+  });
+
+  it('adds a flat reminder to the low B-flat in Tu Falta without duplicating printed accidentals', () => {
+    const note: NoteEntry = { id: 'low-b-flat', keys: ['bb/3'], duration: 'q' };
+    expect(getFocusAccidentalHelpers(note, 'Bb', [null])).toEqual(['b']);
+    expect(getFocusAccidentalHelpers(note, 'Bb', ['b'])).toEqual([null]);
+  });
+
+  it('respects key signatures and explicit naturals for each chord pitch', () => {
+    const note: NoteEntry = {
+      id: 'chord', keys: ['f/4', 'b/3', 'f/5'], duration: 'q', accidentals: [null, null, 'n'],
+    };
+    expect(getFocusAccidentalHelpers(note, 'G', [null, null, 'n'])).toEqual(['#', null, null]);
+    expect(getFocusAccidentalHelpers({ ...note, isRest: true }, 'G', [])).toEqual([null, null, null]);
+    expect(getFocusAccidentalHelpers({ ...note, drumMidi: [42] }, 'G', [])).toEqual([null, null, null]);
+  });
+});
 
 describe('score voice labels', () => {
   it('hides labels that merely repeat the selected track name', () => {

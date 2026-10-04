@@ -31,6 +31,19 @@ The editor now has a tested local-first core, versioned storage, responsive edit
 - Improve rhythmic engraving: automatic rests for unfilled beats, user-controlled beam groups, and tuplets.
 - Add MIDI export and MusicXML import/export; JSON remains the lossless internal backup format.
 
+## Practice foundation added
+
+- Live USB/MIDI input with device selection, note release handling, hot plugging, and editor step entry
+- Local microphone pitch estimation with stable-note gating and noise-floor controls
+- Default full-screen child-friendly Practice with Twinkle, Mary Had a Little Lamb, and Ode to Joy; songs and settings in a left overlay drawer; one prompt and guided phrase progression
+- Space play/pause/resume, Shift+Space/Escape stop, audio-clock preservation on pause, and responsive one-screen portrait/landscape layouts
+- Music reading with one/two-bar scrolling treble notation, matched pitch colors, and progressively removable name/finger/key hints
+- A flexible 60-minute plan with phrase learning, listening, band performances, a break, and creative play
+- Synthesized accompaniment, count-in, tempo and volume controls, finger hints, and persisted phrase milestones/stars
+- Editable lesson melody/backing projects and browser regression coverage for the learning and input flows
+
+Next practice improvements: calibrate microphone latency against real keyboards and acoustic pianos; add held-note/rhythm assessment, teacher-authored lesson plans, bass-staff and two-hand reading exercises, and adaptive recommendations. Test MIDI and microphone behavior with physical devices before claiming hardware compatibility.
+
 ## P2 — playback and practice
 
 - Add play-from-selection and make the existing playback cursor seekable.
@@ -41,7 +54,7 @@ The editor now has a tested local-first core, versioned storage, responsive edit
 
 ## P3 — product and architecture
 
-- Split editor commands/history out of `App.tsx` into a reducer or command layer.
+- Pure copying, transposition, and pitch normalization now live in `src/models/editorCommands.ts`; next, move editor history/state transitions into a reducer or command layer.
 - Move rendering behind a small adapter so layout can be tested independently of the DOM.
 - Reduce the initial VexFlow bundle (currently large enough to trigger Vite's chunk-size warning) through targeted imports, font handling, or deferred editor loading.
 - Add song sorting/search, duplication, and explicit rename affordances.

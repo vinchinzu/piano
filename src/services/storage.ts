@@ -1,3 +1,4 @@
+import { GUITAR_PROFILES, GUITAR_LAYERS } from '../models/guitar';
 import {
   CURRENT_SONG_SCHEMA_VERSION,
   DEFAULT_TRACK_SYNTH_CONTROLS,
@@ -9,6 +10,7 @@ import {
   type Song,
   type SongTrack,
 } from '../models/song';
+import guitarFirstPosition from '../../songs/guitar-first-position-exercise-1.json';
 import alouetteBeginner from '../../songs/alouette-beginner.json';
 import marinesHymnBeginner from '../../songs/marines-hymn-beginner.json';
 import marinesHymn from '../../songs/marines-hymn.json';
@@ -22,7 +24,7 @@ import tuFaltaDeQuerer from '../../songs/tu-falta-de-querer.json';
 const STORAGE_KEY = 'piano_sheet_songs';
 const CURRENT_SONG_KEY = 'piano_sheet_current';
 const SAMPLE_LIBRARY_VERSION_KEY = 'piano_sheet_sample_library_version';
-const SAMPLE_LIBRARY_VERSION = '5';
+const SAMPLE_LIBRARY_VERSION = '6';
 export const DEFAULT_STARTER_SONG_ID = 'fixture-alouette-beginner';
 const NOTE_DURATIONS = new Set(['w', 'h', 'q', '8', '16']);
 const ACCIDENTALS = new Set(['#', 'b', 'n']);
@@ -33,9 +35,10 @@ const KEY_SIGNATURE_SET = new Set<string>(KEY_SIGNATURES);
 const INSTRUMENT_SOUNDS = new Set([
   'grand-piano', 'electric-keys', 'warm-pad', 'music-box',
   'string-ensemble', 'choir-aahs', 'synth-lead', 'synth-brass',
-  'guitar', 'bass', 'organ', 'drum-kit',
+  'nylon-guitar', 'guitar', 'bass', 'organ', 'drum-kit',
 ]);
 const BUNDLED_SAMPLE_CANDIDATES: unknown[] = [
+  guitarFirstPosition,
   tuFaltaDeQuerer,
   lowerNorfair,
   moonlightSonata,
@@ -74,8 +77,19 @@ function isNoteEntry(value: unknown): boolean {
     restOffset?: unknown;
     drumMidi?: unknown;
     fingers?: unknown;
+    guitarPositions?: unknown;
   };
   return (
+    (note.guitarPositions === undefined || (
+      Array.isArray(note.guitarPositions) && Array.isArray(note.keys) && note.guitarPositions.length === note.keys.length &&
+      note.guitarPositions.every((position) => position === null || (
+        position && typeof position === 'object' &&
+        Number.isInteger(position.string) && position.string >= 1 && position.string <= 6 &&
+        Number.isInteger(position.fret) && position.fret >= 0 && position.fret <= 19 &&
+        Number.isInteger(position.finger) && position.finger >= 0 && position.finger <= 4 &&
+        (position.fret === 0 ? position.finger === 0 : position.finger > 0)
+      ))
+    )) &&
     typeof note.id === 'string' && note.id.length > 0 && note.id.length <= 200 &&
     Array.isArray(note.keys) &&
     note.keys.length > 0 && note.keys.length <= 32 &&
@@ -187,6 +201,13 @@ function isSongTrack(value: unknown): value is SongTrack {
   if (!value || typeof value !== 'object') return false;
   const track = value as Partial<SongTrack>;
   return (
+    (track.instrumentMode === undefined || track.instrumentMode === 'piano' || track.instrumentMode === 'guitar') &&
+    (track.guitar === undefined || (
+      track.guitar !== null && typeof track.guitar === 'object' &&
+      Object.hasOwn(GUITAR_PROFILES, track.guitar.profile) &&
+      track.guitar.layers !== null && typeof track.guitar.layers === 'object' &&
+      GUITAR_LAYERS.every(({ id }) => typeof track.guitar!.layers[id] === 'boolean')
+    )) &&
     typeof track.id === 'string' && track.id.length > 0 && track.id.length <= 200 &&
     typeof track.name === 'string' && track.name.length > 0 && track.name.length <= 500 &&
     (track.kind === 'pitched' || track.kind === 'percussion') &&

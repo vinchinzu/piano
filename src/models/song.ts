@@ -1,3 +1,5 @@
+import type { GuitarSettings, GuitarPosition } from './guitar';
+
 export type NoteDuration = 'w' | 'h' | 'q' | '8' | '16';
 export type Accidental = '#' | 'b' | 'n';
 export type Dynamic = 'pp' | 'p' | 'mp' | 'mf' | 'f' | 'ff';
@@ -15,6 +17,7 @@ export type InstrumentSound =
   | 'choir-aahs'
   | 'synth-lead'
   | 'synth-brass'
+  | 'nylon-guitar'
   | 'guitar'
   | 'bass'
   | 'organ'
@@ -72,6 +75,8 @@ export interface NoteEntry {
   drumMidi?: number[];
   /** Piano finger numbers, 1 = thumb through 5 = pinky, aligned with `keys`. */
   fingers?: (number | null)[];
+  /** Guitar positions aligned with keys; null uses the shared position guide. */
+  guitarPositions?: (GuitarPosition | null)[];
 }
 
 export interface Measure {
@@ -102,6 +107,8 @@ export interface SongTrack {
   synthControls: SynthControls;
   midi?: TrackMidiMetadata;
   muted?: boolean;
+  instrumentMode?: 'piano' | 'guitar';
+  guitar?: GuitarSettings;
   staffLayout?: StaffLayout;
   /** Override either displayed clef while retaining upper/lower staff storage. */
   staffClefs?: Partial<Record<StaffClef, DisplayClef>>;
@@ -205,12 +212,14 @@ export function createDefaultMeasure(): Measure {
   };
 }
 
-export function createDefaultTrack(name = 'Piano'): SongTrack {
+export function createDefaultTrack(name = 'Piano', instrumentMode: 'piano' | 'guitar' = 'piano'): SongTrack {
   return {
     id: createId(),
     name,
     kind: 'pitched',
-    instrumentSound: 'grand-piano',
+    instrumentSound: instrumentMode === 'guitar' ? 'nylon-guitar' : 'grand-piano',
+    instrumentMode,
+    staffLayout: instrumentMode === 'guitar' ? 'treble-only' : undefined,
     synthControls: { ...DEFAULT_TRACK_SYNTH_CONTROLS },
     measures: [
       createDefaultMeasure(),
@@ -243,6 +252,8 @@ export function createEditableScore(song: Song, trackId?: string | null): Editab
     synthControls: track.synthControls,
     midi: track.midi,
     muted: track.muted,
+    instrumentMode: track.instrumentMode,
+    guitar: track.guitar,
     staffLayout: track.staffLayout,
     staffClefs: track.staffClefs,
     voiceLabels: track.voiceLabels,
@@ -259,6 +270,8 @@ export function replaceSongTrackFromScore(song: Song, score: EditableScore): Son
     synthControls: score.synthControls,
     midi: score.midi,
     muted: score.muted,
+    instrumentMode: score.instrumentMode,
+    guitar: score.guitar,
     staffLayout: score.staffLayout,
     staffClefs: score.staffClefs,
     voiceLabels: score.voiceLabels,
@@ -513,7 +526,7 @@ export function getMeasureAccidentalDisplay(
   return displayByNoteId;
 }
 
-export function createDefaultSong(): Song {
+export function createDefaultSong(instrumentMode: 'piano' | 'guitar' = 'piano'): Song {
   return {
     schemaVersion: CURRENT_SONG_SCHEMA_VERSION,
     id: createId(),
@@ -521,7 +534,7 @@ export function createDefaultSong(): Song {
     tempo: 120,
     timeSignature: [4, 4],
     keySignature: 'C',
-    tracks: [createDefaultTrack()],
+    tracks: [createDefaultTrack(instrumentMode === 'guitar' ? 'Nylon Guitar' : 'Piano', instrumentMode)],
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };

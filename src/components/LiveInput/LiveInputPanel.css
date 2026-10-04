@@ -1,0 +1,11 @@
+.live-input { padding: 12px 18px; background: #25253a; border: 1px solid #45475a; border-radius: 16px; }
+.live-input.compact { padding: 6px 16px; border-radius: 0; border-inline: 0; flex-shrink: 0; }
+.live-input-buttons { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.live-input button, .live-input select { border: 1px solid #585b70; background: #313244; color: #e6e9f5; border-radius: 8px; padding: 8px 12px; min-height: 40px; cursor: pointer; }
+.live-input button[aria-pressed=true] { border-color: #b6a0ff; background: #473865; }
+.live-input p { margin-top: 6px; color: #bac2de; font-size: 12px; }
+.input-label { font-size: 13px; font-weight: 700; margin-right: 4px; }
+.input-pitch { color: #a6e3a1; font-weight: 700; }
+.mic-sensitivity { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.mic-sensitivity input { width: 90px; }
+.live-input.compact button { min-height: 30px; padding: 4px 9px; font-size: 12px; }

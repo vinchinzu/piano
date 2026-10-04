@@ -93,7 +93,7 @@ describe('song validation and migration', () => {
     expect(DEFAULT_STARTER_SONG_ID).toBe('fixture-alouette-beginner');
   });
 
-  it('adds Lower Norfair when upgrading an existing starter library', () => {
+  it('adds new samples when upgrading an existing starter library', () => {
     const stored = new Map<string, string>([
       ['piano_sheet_songs', JSON.stringify([alouetteBeginner])],
       ['piano_sheet_sample_library_version', '3'],
@@ -106,7 +106,9 @@ describe('song validation and migration', () => {
     const songs = initializeSongLibrary();
 
     expect(songs.some((song) => song.id === 'lower-norfair-multitrack')).toBe(true);
-    expect(stored.get('piano_sheet_sample_library_version')).toBe('5');
+    expect(songs.some((song) => song.id === 'fixture-guitar-first-position-exercise-1')).toBe(true);
+    expect(songs.filter((song) => song.id === alouetteBeginner.id)).toHaveLength(1);
+    expect(stored.get('piano_sheet_sample_library_version')).toBe('6');
   });
 
   it('rejects unsupported keys, overflowing voices, and duplicate note ids', () => {

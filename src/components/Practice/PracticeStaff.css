@@ -1,0 +1,18 @@
+.practice-reading { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.staff-caption { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; flex-shrink: 0; font-size: 12px; color: #dfd1f4; }
+.staff-caption span { color: #ffe1a0; font-variant-numeric: tabular-nums; }
+.staff-caption small { color: #bcb5d0; }
+.practice-staff-frame { border: 1px solid #d9d1e4; border-radius: 14px; background: #fffdf6; flex: 1; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.practice-staff-window { position: relative; overflow: hidden; flex-shrink: 0; }
+.practice-staff-rail { will-change: transform; transition: transform 280ms ease-out; }
+.practice-staff-rail svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.practice-staff-rail .staff-bar-label { font: 11px sans-serif; fill: #70657e; }
+.practice-staff-rail .staff-note-name { font: bold 17px sans-serif; }
+.practice-staff-rail .staff-finger { font: 12px sans-serif; fill: #6c6175; }
+.practice-staff-rail .practice-note-halo { fill: #f5bb4040; stroke: #be870c; stroke-width: 1.7; visibility: hidden; }
+.practice-staff-rail .practice-note.current .practice-note-halo { visibility: visible; }
+.practice-staff-rail .practice-note.completed { opacity: .45; }
+.practice-staff-rail .practice-note.completed.current { opacity: 1; }
+.practice-staff-cursor { stroke: #aa7811; stroke-width: 1.5; opacity: .7; pointer-events: none; }
+.practice-room .staff-reading-tip { display: none; }
+@media(prefers-reduced-motion: reduce) { .practice-staff-rail { transition: none; } }

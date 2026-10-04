@@ -1,0 +1,89 @@
+.instrument-controls {
+  flex: none;
+  padding: 9px 16px;
+  background: #1e1e2e;
+  border-bottom: 1px solid #45475a;
+  color: #cdd6f4;
+  font-size: 12px;
+}
+.instrument-controls-row, .guitar-layer-toggles, .guitar-note-overrides, .guitar-tone-override {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.instrument-controls label { display: inline-flex; align-items: center; gap: 6px; }
+.instrument-controls select, .instrument-controls button {
+  min-height: 30px;
+  border: 1px solid #585b70;
+  border-radius: 5px;
+  background: #313244;
+  color: #cdd6f4;
+  padding: 3px 7px;
+  font: inherit;
+}
+.guitar-layer-toggles { gap: 12px; }
+.guitar-layer-toggles input { accent-color: #89b4fa; }
+.guitar-legend { margin: 7px 0 0; color: #a6adc8; line-height: 1.5; }
+.guitar-note-overrides { margin-top: 8px; }
+.guitar-guide-hint { color: #f9e2af; }
+.guitar-fretboard { overflow-x: auto; flex: none; padding: 6px 20px 10px; background: #181825; }
+.guitar-fret-row { display: grid; grid-template-columns: 66px repeat(var(--guitar-fret-count), minmax(42px, 1fr)); }
+.guitar-fret-header { color: #a6adc8; font-size: 11px; text-align: center; padding-bottom: 5px; }
+.guitar-string-label { display: flex; align-items: center; gap: 9px; color: #cdd6f4; font-size: 12px; }
+.circled-string { display: inline-grid; place-items: center; width: 20px; height: 20px; border: 1px solid #a6adc8; border-radius: 50%; }
+.guitar-fret {
+  position: relative;
+  min-height: 28px;
+  border: 0;
+  border-right: 2px solid #7f7368;
+  border-radius: 0;
+  background: #433127;
+  color: #f5e7db;
+  cursor: pointer;
+}
+.guitar-fret::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #ad9680; pointer-events: none; }
+.guitar-fret span { position: relative; display: inline-block; min-width: 24px; border-radius: 12px; background: #433127; padding: 2px 6px; font-size: 11px; }
+.guitar-fret.open-string { background: #272332; border-right: 4px solid #e7d6be; }
+.guitar-fret.open-string span { background: #272332; }
+.guitar-fret:hover span, .guitar-fret.selected span { background: #89b4fa; color: #11111b; }
+.guitar-fret.playing span { background: #a6e3a1; color: #11111b; box-shadow: 0 0 10px #a6e3a155; }
+.guitar-fret:focus-visible { outline: 2px solid #89b4fa; outline-offset: -2px; z-index: 1; }
+.app.focus-mode .instrument-controls { padding-top: 72px; }
+.app.focus-mode .guitar-legend, .app.focus-mode .guitar-note-overrides { display: none; }
+.app.focus-mode .guitar-fretboard { padding-block: 7px; }
+.app.focus-mode .guitar-fret { min-height: clamp(23px, 3.5vh, 32px); }
+@media (max-width: 760px) {
+  .instrument-controls { padding: 7px 10px; }
+  .instrument-controls-row { gap: 7px; }
+  .guitar-fretboard { padding-inline: 8px; }
+  .guitar-fret-row { grid-template-columns: 48px repeat(var(--guitar-fret-count), minmax(36px, 1fr)); }
+}
+
+.guitar-help, .guitar-position-editor { margin-top: 7px; }
+.guitar-help summary, .guitar-position-editor summary { cursor: pointer; color: #a6adc8; }
+.app.focus-mode .guitar-help, .app.focus-mode .guitar-position-editor { display: none; }
+.app.focus-mode:not(.guitar-mode) .instrument-controls { display: none; }
+.app.focus-mode.guitar-mode .score-container { padding-top: 12px; }
+@media (max-width: 760px) {
+  .guitar-note-overrides { max-height: 94px; overflow-y: auto; }
+  .guitar-legend { max-height: 64px; overflow-y: auto; }
+}
+
+.guitar-practice-panel summary { cursor: pointer; color: #a6adc8; }
+.guitar-practice-options { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 7px; }
+@media (min-width: 761px) {
+  .guitar-practice-panel[open] { display: flex; align-items: center; }
+  .guitar-practice-panel[open] > summary { float: left; margin-right: 12px; }
+  .guitar-practice-panel[open] .guitar-practice-options { padding-top: 0; }
+}
+@media (max-width: 760px) {
+  .guitar-practice-panel { flex-basis: 100%; }
+  .guitar-mode .guitar-help { margin-top: 3px; }
+}
+
+@media (max-width: 760px) {
+  .guitar-mode .song-item-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .guitar-mode .song-item-info { display: none; }
+  .guitar-mode .song-manager { max-height: 106px; }
+}

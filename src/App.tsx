@@ -1,3 +1,5 @@
+import { GuitarControls } from './components/Guitar/GuitarControls';
+import { defaultGuitarSettings, resolveGuitarPositions, type GuitarPosition } from './models/guitar';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Toolbar } from './components/Toolbar/Toolbar';
 import { PlaybackBar } from './components/PlaybackBar/PlaybackBar';
@@ -30,10 +32,8 @@ import {
   mapMeasureNotes,
   getMeasureNoteIds,
   getNoteMidiPitches,
-  measurePianoKeys,
   getKeySignatureAccidental,
   notesHaveSamePitches,
-  notationPitchToPianoKey,
   pianoKeyToMidi,
   replaceSongTrackFromScore,
 } from './models/song';
@@ -50,6 +50,7 @@ import {
 } from './services/storage';
 import {
   getPlaybackCursorX,
+  getFocusMeasureStart,
   renderSong,
   type NoteNameMode,
   type RenderResult,
@@ -60,10 +61,16 @@ import {
   type SynthControls,
 } from './services/playback';
 import { importSongFromMidi } from './services/midi';
+import { emptyPlaybackVisualState } from './services/playbackVisuals';
+import { PracticeRoom } from './components/Practice/PracticeRoom';
+import { LiveInputPanel } from './components/LiveInput/LiveInputPanel';
+import { useLiveInput } from './hooks/useLiveInput';
+import { createLessonSong, type Lesson } from './models/lessons';
+import { midiToPianoKey } from './models/song';
+import { PITCH_NAMES, copyNoteData, cloneNoteForPaste, cloneMeasureForPaste, transposeNoteBySteps, staffYToKey, normalizePianoKeys, normalizeEditedPianoKeys, formatPitchLabel } from './models/editorCommands';
 import './App.css';
 
 const MAX_HISTORY = 50;
-const PITCH_NAMES = ['c', 'd', 'e', 'f', 'g', 'a', 'b'];
 const NOTE_NAMES_STORAGE_KEY = 'piano_sheet_show_note_names';
 type PlayState = 'stopped' | 'loading' | 'playing' | 'paused';
 type SaveStatus = 'saved' | 'saving' | 'error';
@@ -94,144 +101,6 @@ interface ComposerRequest {
 type EditorClipboard =
   | { kind: 'note'; note: NoteEntry; source: ScoreTarget }
   | { kind: 'measure'; measure: Measure };
-
-function copyNoteData(note: NoteEntry): NoteEntry {
-  return {
-    ...note,
-    keys: [...note.keys],
-    drumMidi: note.drumMidi ? [...note.drumMidi] : undefined,
-    accidentals: note.accidentals ? [...note.accidentals] : undefined,
-    articulations: note.articulations ? [...note.articulations] : undefined,
-  };
-}
-
-function cloneNoteForPaste(note: NoteEntry): NoteEntry {
-  return {
-    ...copyNoteData(note),
-    id: createId(),
-    tieToNext: undefined,
-    slurToNoteId: undefined,
-    slurPlacement: undefined,
-    slurStart: undefined,
-    slurEnd: undefined,
-  };
-}
-
-function cloneMeasureForPaste(measure: Measure): Measure {
-  const oldIds = getMeasureNoteIds(measure);
-  const idMap = new Map(oldIds.map((id) => [id, createId()]));
-  const cloneVoice = (voice: NoteEntry[]) => voice.map((note, index) => ({
-    ...copyNoteData(note),
-    id: idMap.get(note.id) ?? createId(),
-    tieToNext: note.tieToNext && index < voice.length - 1 ? true : undefined,
-    slurToNoteId: note.slurToNoteId ? idMap.get(note.slurToNoteId) : undefined,
-    slurPlacement: note.slurToNoteId && idMap.has(note.slurToNoteId)
-      ? note.slurPlacement
-      : undefined,
-  }));
-  return {
-    ...measure,
-    treble: cloneVoice(measure.treble),
-    bass: cloneVoice(measure.bass),
-    additionalTrebleVoices: measure.additionalTrebleVoices?.map(cloneVoice),
-    additionalBassVoices: measure.additionalBassVoices?.map(cloneVoice),
-  };
-}
-
-function transposeNoteBySteps(note: NoteEntry, steps: number): NoteEntry {
-  if (note.drumMidi) return note;
-  if (note.isRest) {
-    const restOffset = Math.max(-6, Math.min(6, (note.restOffset ?? 0) + steps * 0.5));
-    return { ...note, restOffset: restOffset || undefined };
-  }
-  return {
-    ...note,
-    keys: note.keys.map((key) => {
-      const [name, octaveText] = key.split('/');
-      const pitchIndex = PITCH_NAMES.indexOf(name[0]?.toLowerCase());
-      if (pitchIndex < 0) return key;
-      const absolutePitch = Number(octaveText) * PITCH_NAMES.length + pitchIndex + steps;
-      const octave = Math.floor(absolutePitch / PITCH_NAMES.length);
-      const normalizedPitchIndex = ((absolutePitch % PITCH_NAMES.length) + PITCH_NAMES.length)
-        % PITCH_NAMES.length;
-      return `${PITCH_NAMES[normalizedPitchIndex]}${name.slice(1)}/${octave}`;
-    }),
-  };
-}
-
-function staffYToKey(y: number, staffTopY: number, displayClef: StaffClef): string {
-  const topLinePitch = displayClef === 'treble'
-    ? 5 * PITCH_NAMES.length + PITCH_NAMES.indexOf('f')
-    : 3 * PITCH_NAMES.length + PITCH_NAMES.indexOf('a');
-  const diatonicStepsDown = Math.round((y - staffTopY) / 5);
-  const absolutePitch = topLinePitch - diatonicStepsDown;
-  const octave = Math.floor(absolutePitch / PITCH_NAMES.length);
-  const pitchIndex = ((absolutePitch % PITCH_NAMES.length) + PITCH_NAMES.length)
-    % PITCH_NAMES.length;
-  return `${PITCH_NAMES[pitchIndex]}/${octave}`;
-}
-
-function normalizePianoKeys(keys: string[], keySignature: string): {
-  keys: string[];
-  accidentals?: (Accidental | null)[];
-} {
-  const normalizedKeys = keys.map((key) => {
-    const [name, octave] = key.split('/');
-    return `${name[0]}/${octave}`;
-  });
-  const accidentals = keys.map((key): Accidental | null => {
-    const name = key.split('/')[0];
-    const accidental = name.slice(1);
-    if (accidental.includes('#')) return '#';
-    if (accidental.includes('b')) return 'b';
-    if (getKeySignatureAccidental(keySignature, name)) return 'n';
-    return null;
-  });
-  return {
-    keys: normalizedKeys,
-    accidentals: accidentals.some(Boolean) ? accidentals : undefined,
-  };
-}
-
-function normalizeEditedPianoKeys(
-  pianoKeys: string[],
-  keySignature: string,
-  originalNote: NoteEntry,
-): { keys: string[]; accidentals?: (Accidental | null)[] } {
-  const originalSpellings = new Map<string, { key: string; accidental: Accidental | null }>();
-  originalNote.keys.forEach((key, index) => {
-    const accidental = originalNote.accidentals?.[index] ?? null;
-    const pianoKey = notationPitchToPianoKey(key, accidental, keySignature);
-    if (!originalSpellings.has(pianoKey)) originalSpellings.set(pianoKey, { key, accidental });
-  });
-
-  const normalized = normalizePianoKeys(pianoKeys, keySignature);
-  const entries = pianoKeys.map((pianoKey, index) => (
-    originalSpellings.get(pianoKey) ?? {
-      key: normalized.keys[index],
-      accidental: normalized.accidentals?.[index] ?? null,
-    }
-  ));
-  const accidentals = entries.map((entry) => entry.accidental);
-  return {
-    keys: entries.map((entry) => entry.key),
-    accidentals: accidentals.some(Boolean) ? accidentals : undefined,
-  };
-}
-
-function formatPitchLabel(key: string, accidental?: Accidental | null): string {
-  const [name, octave] = key.split('/');
-  const writtenAccidental = name.slice(1);
-  const effectiveAccidental = accidental === 'n'
-    ? 'n'
-    : accidental ?? (writtenAccidental.includes('#') ? '#' : writtenAccidental.includes('b') ? 'b' : null);
-  const accidentalSymbol = effectiveAccidental === '#'
-    ? '♯'
-    : effectiveAccidental === 'b'
-      ? '♭'
-      : effectiveAccidental === 'n' ? '♮' : '';
-  return `${name[0]?.toUpperCase() ?? ''}${accidentalSymbol}${octave}`;
-}
 
 function createInitialLibrary(): { songs: Song[]; currentSong: Song } {
   const savedSongs = initializeSongLibrary();
@@ -289,6 +158,9 @@ function keyboardRangeForMidis(
 }
 
 function App() {
+  const [practiceOpen, setPracticeOpen] = useState(true);
+  const liveChordRef = useRef<string[]>([]);
+  const liveChordTimerRef = useRef<number | null>(null);
   const [initialLibrary] = useState(createInitialLibrary);
   const [songs, setSongs] = useState<Song[]>(initialLibrary.songs);
   const [currentSong, setCurrentSong] = useState<Song>(initialLibrary.currentSong);
@@ -319,11 +191,9 @@ function App() {
   const [composerRequest, setComposerRequest] = useState<ComposerRequest | null>(null);
   const [isDraggingNote, setIsDraggingNote] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-  const shownPlaybackKeys = useMemo(() => {
-    if (playState !== 'playing' && playState !== 'paused') return [];
-    const measure = activeScore.measures[currentPlayMeasure];
-    return measure ? measurePianoKeys(measure, activeScore.keySignature) : [];
-  }, [activeScore, currentPlayMeasure, playState]);
+  const focusMeasureStart = focusMode ? getFocusMeasureStart(currentPlayMeasure, activeScore.measures.length) : 0;
+  const [playbackVisualState, setPlaybackVisualState] = useState(emptyPlaybackVisualState);
+  const { noteIds: highlightedNoteIds, pianoKeys: activePlaybackKeys } = playbackVisualState;
   const focusKeyboardRange = useMemo(() => {
     if (!focusMode) return null;
     const midis: number[] = [];
@@ -340,7 +210,6 @@ function App() {
     }
     return keyboardRangeForMidis(midis, activeScore.kind === 'percussion');
   }, [activeScore, focusMode]);
-  const [highlightedNoteIds, setHighlightedNoteIds] = useState<string[]>([]);
 
   const [editorClipboard, setEditorClipboard] = useState<EditorClipboard | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
@@ -377,8 +246,15 @@ function App() {
     if (playbackEngine.getState() === 'stopped') return;
     playbackEngine.stop();
     setPlayState('stopped');
-    setHighlightedNoteIds([]);
-        setCurrentPlayMeasure(0);
+    setCurrentPlayMeasure(0);
+  }, []);
+
+  useEffect(() => {
+    playbackEngine.onVisualState((state) => {
+      setPlaybackVisualState(state);
+      setCurrentPlayMeasure(state.measureIdx);
+    });
+    return () => playbackEngine.onVisualState(undefined);
   }, []);
 
   useEffect(() => {
@@ -554,7 +430,12 @@ function App() {
         loc.clef,
         loc.voiceIdx,
       );
-      const modified = modifier({ ...notes[loc.noteIdx] });
+      const original = notes[loc.noteIdx];
+      const modified = modifier({ ...original });
+      if (JSON.stringify(modified.keys) !== JSON.stringify(original.keys)
+        || JSON.stringify(modified.accidentals) !== JSON.stringify(original.accidentals)) {
+        modified.guitarPositions = undefined;
+      }
       const otherBeats = notes.reduce(
         (sum, note, index) => index === loc.noteIdx ? sum : sum + getNoteBeatValue(note),
         0,
@@ -595,14 +476,18 @@ function App() {
     const drawScore = () => {
       cancelAnimationFrame(animationFrame);
       animationFrame = requestAnimationFrame(() => {
+        const style = getComputedStyle(container);
+        const availableWidth = container.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        const availableHeight = container.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
         const result = renderSong(
           container,
           activeScore,
-          selectedNoteId,
+          focusMode ? null : selectedNoteId,
           null,
-          container.clientWidth - 40,
-          selectedBarTarget,
+          availableWidth,
+          focusMode ? null : selectedBarTarget,
           noteNameMode,
+          focusMode ? { startMeasure: focusMeasureStart, availableHeight } : undefined,
         );
         noteMapRef.current = result.noteElements;
         measureRegionsRef.current = result.measureRegions;
@@ -623,7 +508,7 @@ function App() {
       cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
     };
-  }, [activeScore, selectedNoteId, selectedBarTarget, noteNameMode]);
+  }, [activeScore, selectedNoteId, selectedBarTarget, noteNameMode, focusMode, focusMeasureStart, practiceOpen]);
 
   const clearPlaybackCursor = useCallback(() => {
     scoreRef.current
@@ -684,9 +569,10 @@ function App() {
         playbackAnimationRef.current = null;
       }
     };
-  }, [activeTrackId, playState, clearPlaybackCursor, drawPlaybackCursor]);
+  }, [activeTrackId, playState, clearPlaybackCursor, drawPlaybackCursor, focusMode, focusMeasureStart]);
 
   useEffect(() => {
+    if (focusMode) return;
     if (playState !== 'playing' && playState !== 'paused') return;
     const container = scoreRef.current;
     const region = measureRegionsRef.current.find((candidate) => (
@@ -699,9 +585,10 @@ function App() {
     if (region.y < visibleTop + 24 || region.y + region.height > visibleBottom - 24) {
       container.scrollTo({ top: targetTop, behavior: 'smooth' });
     }
-  }, [currentPlayMeasure, playState]);
+  }, [currentPlayMeasure, playState, focusMode]);
 
   useEffect(() => {
+    if (focusMode) return;
     if (!selectedBarTarget) return;
     const animationFrame = requestAnimationFrame(() => {
       const container = scoreRef.current;
@@ -722,7 +609,7 @@ function App() {
       }
     });
     return () => cancelAnimationFrame(animationFrame);
-  }, [activeScore.measures.length, selectedBarTarget]);
+  }, [activeScore.measures.length, selectedBarTarget, focusMode]);
 
   const handleNoteSelection = useCallback((noteId: string) => {
     if (!slurToolActive) {
@@ -815,11 +702,12 @@ function App() {
     const svg = container?.querySelector('svg');
     if (!svg) return null;
     const rect = svg.getBoundingClientRect();
-    const renderedWidth = svg.width.baseVal.value || rect.width;
-    const renderedHeight = svg.height.baseVal.value || rect.height;
+    const viewBox = svg.viewBox.baseVal;
+    const renderedWidth = viewBox.width || svg.width.baseVal.value || rect.width;
+    const renderedHeight = viewBox.height || svg.height.baseVal.value || rect.height;
     return {
-      x: (clientX - rect.left) * (renderedWidth / rect.width),
-      y: (clientY - rect.top) * (renderedHeight / rect.height),
+      x: viewBox.x + (clientX - rect.left) * (renderedWidth / rect.width),
+      y: viewBox.y + (clientY - rect.top) * (renderedHeight / rect.height),
     };
   }, []);
 
@@ -1083,6 +971,7 @@ function App() {
         : normalizeEditedPianoKeys(keys, song.keySignature, originalNote);
       notes[location.noteIdx] = {
         ...existing,
+        guitarPositions: undefined,
         keys: drumMidi?.map(drumMidiToStaffKey) ?? normalized!.keys,
         accidentals: drumMidi ? undefined : normalized!.accidentals,
         drumMidi,
@@ -1552,19 +1441,14 @@ function App() {
       return;
     }
     setPlayState('loading');
-    setCurrentPlayMeasure(0);
-    setHighlightedNoteIds([]);
-        playbackEngine.onNotes((measureIdx, noteIds) => {
-      setHighlightedNoteIds(noteIds);
-      setCurrentPlayMeasure(measureIdx);
-    });
+    setCurrentPlayMeasure(focusMode ? focusMeasureStart : 0);
+    setPlaybackVisualState(emptyPlaybackVisualState());
     playbackEngine.onStopped(() => {
       setPlayState('stopped');
-      setHighlightedNoteIds([]);
-            setCurrentPlayMeasure(0);
+      setCurrentPlayMeasure(0);
     });
     try {
-      await playbackEngine.play(currentSong, activeTrackId, 0, loopEnabled, soloActiveTrack);
+      await playbackEngine.play(currentSong, activeTrackId, focusMode ? focusMeasureStart : 0, loopEnabled, soloActiveTrack);
       if (playbackEngine.getState() === 'playing') {
         setPlayState('playing');
         if (playbackEngine.consumeFallbackSound()) {
@@ -1574,10 +1458,9 @@ function App() {
     } catch {
       playbackEngine.stop();
       setPlayState('stopped');
-      setHighlightedNoteIds([]);
-            setEditorMessage('That sound could not be prepared. Try another sound or check your connection.');
+      setEditorMessage('That sound could not be prepared. Try another sound or check your connection.');
     }
-  }, [activeTrackId, currentSong, loopEnabled, playState, soloActiveTrack]);
+  }, [activeTrackId, currentSong, loopEnabled, playState, soloActiveTrack, focusMode, focusMeasureStart]);
 
   const handlePause = useCallback(() => {
     playbackEngine.pause();
@@ -1587,15 +1470,13 @@ function App() {
   const handleStop = useCallback(() => {
     playbackEngine.stop();
     setPlayState('stopped');
-    setHighlightedNoteIds([]);
-        setCurrentPlayMeasure(0);
+    setCurrentPlayMeasure(0);
   }, []);
 
   const handleTrackChange = useCallback((trackId: string) => {
     if (!currentSong.tracks.some((track) => track.id === trackId) || trackId === activeTrackId) return;
     playbackEngine.setActiveTrack(trackId);
-    setHighlightedNoteIds([]);
-        setActiveTrackId(trackId);
+    setActiveTrackId(trackId);
     setSelectedNoteId(null);
     setSelectedBarTarget(null);
     setScoreContextMenu(null);
@@ -1624,8 +1505,7 @@ function App() {
     setRedoStack([]);
     setCurrentSong(nextSong);
     setSongs(loadSongs());
-    setHighlightedNoteIds([]);
-        setSaveStatus('saved');
+    setSaveStatus('saved');
   }, [activeScore, activeTrackId, currentSong]);
 
   const handleSoloActiveTrackToggle = useCallback(() => {
@@ -1634,8 +1514,7 @@ function App() {
       playbackEngine.setSoloActiveTrack(next);
       return next;
     });
-    setHighlightedNoteIds([]);
-      }, []);
+  }, []);
 
   const handleInstrumentSoundChange = useCallback((sound: InstrumentSound) => {
     if (sound === activeScore.instrumentSound) return;
@@ -1704,14 +1583,14 @@ function App() {
   }, []);
 
   const handlePreviewNotes = useCallback((keys: string[]) => {
-    void playbackEngine.previewNotes(keys, instrumentSound).then(() => {
+    void playbackEngine.previewNotes(keys, instrumentSound, activeScore.instrumentMode === 'guitar' ? -1 : 0).then(() => {
       if (playbackEngine.consumeFallbackSound()) {
         setEditorMessage('Grand Piano samples are unavailable, so this preview used Electric Keys.');
       }
     }).catch(() => {
       setEditorMessage('That sound could not be prepared. Try another preset or check your connection.');
     });
-  }, [instrumentSound]);
+  }, [instrumentSound, activeScore.instrumentMode]);
 
   useEffect(() => {
     // Start fetching/constructing the chosen instrument before the first Play
@@ -1755,6 +1634,7 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const shortcutKey = e.key.toLowerCase();
+      if (practiceOpen) return;
       if (
         target.tagName === 'INPUT' ||
         target.tagName === 'TEXTAREA' ||
@@ -1824,10 +1704,10 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modifySelectedNote, selectedNoteId, handleDeleteNote, navigateNote, transposeSelectedNote, playState, handlePlay, handlePause, handleStop, handleUndo, handleRedo, handleCopy, handlePaste, handleTie, composerRequest, cancelComposerSession, focusMode, exitFocusMode]);
+  }, [modifySelectedNote, selectedNoteId, handleDeleteNote, navigateNote, transposeSelectedNote, playState, handlePlay, handlePause, handleStop, handleUndo, handleRedo, handleCopy, handlePaste, handleTie, composerRequest, cancelComposerSession, focusMode, exitFocusMode, practiceOpen]);
 
   // Add note with beat validation
-  const handleAddNote = (keys: string[], clef: 'treble' | 'bass') => {
+  const handleAddNote = (keys: string[], clef: 'treble' | 'bass', guitarPositions?: (GuitarPosition | null)[]) => {
     const explicitTarget = composerRequest?.mode === 'add'
       ? composerRequest.target ?? selectedBarTarget
       : selectedBarTarget;
@@ -1864,6 +1744,7 @@ function App() {
       dotted: isDotted || undefined,
       accidentals: !isRestMode && !drumMidi ? normalized.accidentals : undefined,
       drumMidi: !isRestMode ? drumMidi : undefined,
+      guitarPositions: !isRestMode ? guitarPositions : undefined,
     };
 
     const newNoteBeats = getNoteBeatValue(newNote);
@@ -2030,7 +1911,7 @@ function App() {
 
   const handleNewSong = () => {
     handleStop();
-    const newSong = createDefaultSong();
+    const newSong = createDefaultSong(activeScore.instrumentMode ?? 'piano');
     setSaveStatus('saving');
     try {
       saveSong(newSong);
@@ -2241,8 +2122,56 @@ function App() {
       ].join(':')
     : 'no-selection';
 
+  const editorInput = useLiveInput((note) => {
+    if (!note.on || playState !== 'stopped' || practiceOpen) return;
+    const writtenMidi = note.midi + (activeScore.instrumentMode === 'guitar' ? 12 : 0);
+    if (writtenMidi < 21 || writtenMidi > 108) return;
+    const key = midiToPianoKey(writtenMidi);
+    if (note.source === 'midi') handlePreviewNotes([key]);
+    if (!recordingEnabled) return;
+    if (composerRequest) {
+      setEditorMessage('Finish the current note-entry session before recording live input.');
+      return;
+    }
+    // Simultaneous MIDI attacks become a chord; microphone attacks are monophonic.
+    liveChordRef.current = [...new Set([...liveChordRef.current, key])];
+    if (liveChordTimerRef.current !== null) return;
+    liveChordTimerRef.current = window.setTimeout(() => {
+      const keys = liveChordRef.current.sort((a, b) => pianoKeyToMidi(a) - pianoKeyToMidi(b));
+      liveChordRef.current = []; liveChordTimerRef.current = null;
+      if (keys.length) handleAddNote(keys, activeScore.instrumentMode === 'guitar' || pianoKeyToMidi(keys[0]) >= 60 ? 'treble' : 'bass');
+    }, 35);
+  }, !practiceOpen);
+  useEffect(() => {
+    return () => {
+      if (liveChordTimerRef.current !== null) window.clearTimeout(liveChordTimerRef.current);
+      liveChordTimerRef.current = null; liveChordRef.current = [];
+    };
+  }, [practiceOpen, currentSong.id, activeTrackId, recordingEnabled, playState, editorInput.source]);
+
+  const openLessonScore = (lesson: Lesson) => {
+    const song = createLessonSong(lesson);
+    let message = 'Lesson melody and backing chords are ready. Use Mute or Solo to practice your part.';
+    try {
+      saveSong(song); setCurrentSongId(song.id); setSongs(loadSongs()); setSaveStatus('saved');
+    } catch (error) {
+      // The new score stays available for export even if browser storage is full.
+      setSaveStatus('error'); message = error instanceof Error ? error.message : 'Could not save the lesson score.';
+    }
+    setCurrentSong(song); setActiveTrackId(song.tracks[0].id);
+    setSelectedNoteId(null); setSelectedBarTarget(null); setScoreContextMenu(null);
+    setComposerRequest(null); setSlurToolActive(false); setPendingSlurStartId(null);
+    setUndoStack([]); setRedoStack([]); setEditorMessage(message); setPracticeOpen(false);
+  };
+  if (practiceOpen) return <PracticeRoom onExit={() => setPracticeOpen(false)} onOpenScore={openLessonScore} />;
+
   return (
-    <div className={`app${focusMode ? ' focus-mode' : ''}`}>
+    <div className={`app${focusMode ? ' focus-mode' : ''}${activeScore.instrumentMode === 'guitar' ? ' guitar-mode' : ''}`}>
+      <div className="editor-mode-nav"><span>Piano Sheet · Compose, play, and learn</span><button onClick={() => {
+        handleStop();
+        if (composerRequest) cancelComposerSession();
+        setFocusMode(false); setScoreContextMenu(null); setPracticeOpen(true);
+      }}>★ Practice & lessons</button></div>
       <PlaybackBar
         songId={currentSong.id}
         playState={playState}
@@ -2311,6 +2240,24 @@ function App() {
         onKeySignatureChange={(keySignature) => updateSong((song) => (
           song.keySignature === keySignature ? song : { ...song, keySignature }
         ))}
+      />
+      <GuitarControls
+        onOpenExercise={() => handleSelectSong('fixture-guitar-first-position-exercise-1')}
+        hasExercise={songs.some((song) => song.id === 'fixture-guitar-first-position-exercise-1')}
+        mode={activeScore.instrumentMode ?? 'piano'}
+        disabled={activeScore.kind === 'percussion' || Boolean(composerRequest)}
+        settings={activeScore.guitar}
+        selectedNote={selectedNote}
+        keySignature={activeScore.keySignature}
+        onModeChange={(mode) => updateSong((score) => ({
+          ...score, instrumentMode: mode,
+          staffLayout: mode === 'guitar' ? 'treble-only' : 'grand',
+          staffClefs: mode === 'guitar' ? undefined : score.staffClefs,
+          instrumentSound: mode === 'guitar' ? 'nylon-guitar' : 'grand-piano',
+          guitar: score.guitar ?? defaultGuitarSettings(),
+        }))}
+        onSettingsChange={(guitar) => updateSong((score) => ({ ...score, guitar }))}
+        onPositionsChange={(guitarPositions) => modifySelectedNote((note) => ({ ...note, guitarPositions }))}
       />
       <div className="main-content">
         <SongManager
@@ -2424,7 +2371,7 @@ function App() {
                 {' '}&middot;{' '}Piano input will be added here
               </span>
             ) : (
-              <span className="status-hint">Select a note to edit it, or use the piano below to begin in bar 1</span>
+              <span className="status-hint">Select a note to edit it, or use the {activeScore.instrumentMode === 'guitar' ? 'fretboard' : 'piano'} below to begin in bar 1</span>
             )}
             <div className="status-meta">
               {deletedSongUndo && (
@@ -2482,16 +2429,28 @@ function App() {
       {focusMode && (
         <div className="focus-dock" role="toolbar" aria-label="Focus controls">
           <span className="focus-dock-title">{currentSong.title || 'Untitled'}</span>
-          <span className="focus-dock-bar">
-            {playState === 'loading' ? 'Loading…' : `Bar ${currentPlayMeasure + 1}/${activeScore.measures.length}`}
+          <span className="focus-dock-tempo">
+            ♩ = {currentSong.tempo}
           </span>
+          <button
+            type="button"
+            aria-label="Previous two bars"
+            onClick={() => setCurrentPlayMeasure(Math.max(0, focusMeasureStart - 2))}
+            disabled={playState !== 'stopped' || focusMeasureStart === 0}
+          >‹</button>
+          <button
+            type="button"
+            aria-label="Next two bars"
+            onClick={() => setCurrentPlayMeasure(focusMeasureStart + 2)}
+            disabled={playState !== 'stopped' || focusMeasureStart + 2 >= activeScore.measures.length}
+          >›</button>
           <button
             type="button"
             onClick={playState === 'playing' ? handlePause : handlePlay}
             disabled={playState === 'loading'}
             aria-label={playState === 'playing' ? 'Pause' : 'Play'}
           >
-            {playState === 'playing' ? 'Pause' : 'Play'}
+            {playState === 'loading' ? 'Loading…' : playState === 'playing' ? 'Pause' : 'Play'}
           </button>
           <button
             type="button"
@@ -2506,6 +2465,7 @@ function App() {
           </button>
         </div>
       )}
+      <LiveInputPanel input={editorInput} compact />
       <NoteInput
         key={`${activeTrackId}-${recordingEnabled ? 'record' : 'free'}-${composerRequest ? `composer-${composerRequest.id}` : noteInputSelectionKey}`}
         onAddNote={handleAddNote}
@@ -2514,17 +2474,26 @@ function App() {
         onPreviewKeysChange={previewComposerKeys}
         onSessionCommit={commitComposerSession}
         onSessionCancel={cancelComposerSession}
-        activePlaybackKeys={shownPlaybackKeys}
+        activePlaybackKeys={[...new Set([...activePlaybackKeys, ...editorInput.held.map((midi) => midiToPianoKey(midi + (activeScore.instrumentMode === 'guitar' ? 12 : 0)))])]}
+        showPlaybackGuidance={focusMode || playState !== 'stopped' || editorInput.held.length > 0}
         instrumentSound={instrumentSound}
         synthControls={synthControls}
         onInstrumentSoundChange={handleInstrumentSoundChange}
         onSynthControlsChange={handleSynthControlsChange}
         onPreviewNotes={handlePreviewNotes}
-        showAllNoteNames={noteNameMode !== 'off'}
+        showAllNoteNames={focusMode || noteNameMode !== 'off'}
+        preferFlatLabels={focusMode && getKeySignatureAccidental(currentSong.keySignature, 'b') === 'b'}
         trackKind={activeScore.kind}
         keySignature={activeScore.keySignature}
         recordingEnabled={recordingEnabled}
         midiRange={focusKeyboardRange}
+        instrumentMode={activeScore.instrumentMode}
+        guitarSettings={activeScore.guitar}
+        activeGuitarPositions={activeScore.instrumentMode === 'guitar' ? activeScore.measures.flatMap((measure) =>
+          (['treble', 'bass'] as const).flatMap((clef) => getMeasureVoices(measure, clef).flatMap((voice) =>
+            voice.filter((note) => highlightedNoteIds.includes(note.id)).flatMap((note) => resolveGuitarPositions(note, activeScore.keySignature, activeScore.guitar)),
+          )),
+        ) : []}
         onUpdateSelectedKeys={(keys) => {
           if (activeScore.kind === 'percussion') {
             const drumMidi = keys.map(pianoKeyToMidi);

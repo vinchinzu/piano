@@ -26,3 +26,9 @@ These scores can be imported from the song-library sidebar. Importing a JSON fil
 The source excerpt does not show a title or tempo, so the fixture uses the descriptive title “Teacher Duet” and an editorial tempo of 88 BPM. The transcription is from the supplied photo and is intentionally kept as JSON so individual pitches can be corrected easily if a clearer source becomes available.
 
 The shared-staff fixture also exercises track-level `staffLayout`, `staffClefs`, `voiceLabels`, `additionalBassVoices`, and explicit `slurPlacement` values.
+
+## Guitar study
+
+- `guitar-first-position-exercise-1.json` — Exercise 1 from the supplied “Notes in the First Position” photo: twenty bars in C major and 4/4, two half notes per bar followed by a final whole-note B3. The photo does not specify a tempo; 72 BPM is editorial. Written C4 sounds C3 using guitar's octave transposition.
+
+This fixture is automatically added to the starter library on upgrade without replacing existing projects or local edits. It selects guitar mode, a single treble staff, Nylon Guitar sound, and the first-position guide with circled string numbers and left-hand fingering enabled. String, fret, finger, and beat-count annotations come from the shared guitar rules, and each layer can be toggled independently. The score stays editable; it carries no special lesson rendering code.

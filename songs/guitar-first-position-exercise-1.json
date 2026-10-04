@@ -1,0 +1,413 @@
+{
+  "schemaVersion": 2,
+  "id": "fixture-guitar-first-position-exercise-1",
+  "title": "Guitar \u00b7 First Position \u2014 Exercise 1",
+  "tempo": 72,
+  "timeSignature": [
+    4,
+    4
+  ],
+  "keySignature": "C",
+  "tracks": [
+    {
+      "id": "guitar-ex1-track",
+      "name": "Nylon Guitar",
+      "kind": "pitched",
+      "instrumentMode": "guitar",
+      "instrumentSound": "nylon-guitar",
+      "staffLayout": "treble-only",
+      "guitar": {
+        "profile": "first-position",
+        "layers": {
+          "strings": true,
+          "fingers": true,
+          "frets": false,
+          "beats": false
+        }
+      },
+      "synthControls": {
+        "volume": 0.82,
+        "tone": 0.6,
+        "echo": 0.03,
+        "sustain": 0.48
+      },
+      "measures": [
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-1-1",
+              "keys": [
+                "c/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-1-2",
+              "keys": [
+                "d/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-2-1",
+              "keys": [
+                "e/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-2-2",
+              "keys": [
+                "c/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-3-1",
+              "keys": [
+                "d/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-3-2",
+              "keys": [
+                "e/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-4-1",
+              "keys": [
+                "f/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-4-2",
+              "keys": [
+                "d/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-5-1",
+              "keys": [
+                "e/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-5-2",
+              "keys": [
+                "f/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-6-1",
+              "keys": [
+                "g/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-6-2",
+              "keys": [
+                "e/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-7-1",
+              "keys": [
+                "f/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-7-2",
+              "keys": [
+                "g/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-8-1",
+              "keys": [
+                "a/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-8-2",
+              "keys": [
+                "f/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-9-1",
+              "keys": [
+                "g/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-9-2",
+              "keys": [
+                "a/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-10-1",
+              "keys": [
+                "b/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-10-2",
+              "keys": [
+                "g/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-11-1",
+              "keys": [
+                "a/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-11-2",
+              "keys": [
+                "b/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-12-1",
+              "keys": [
+                "c/5"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-12-2",
+              "keys": [
+                "a/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-13-1",
+              "keys": [
+                "b/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-13-2",
+              "keys": [
+                "c/5"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-14-1",
+              "keys": [
+                "b/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-14-2",
+              "keys": [
+                "a/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-15-1",
+              "keys": [
+                "g/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-15-2",
+              "keys": [
+                "b/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-16-1",
+              "keys": [
+                "a/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-16-2",
+              "keys": [
+                "g/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-17-1",
+              "keys": [
+                "f/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-17-2",
+              "keys": [
+                "g/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-18-1",
+              "keys": [
+                "f/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-18-2",
+              "keys": [
+                "e/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-19-1",
+              "keys": [
+                "d/4"
+              ],
+              "duration": "h"
+            },
+            {
+              "id": "guitar-ex1-19-2",
+              "keys": [
+                "c/4"
+              ],
+              "duration": "h"
+            }
+          ],
+          "bass": []
+        },
+        {
+          "treble": [
+            {
+              "id": "guitar-ex1-20-1",
+              "keys": [
+                "b/3"
+              ],
+              "duration": "w"
+            }
+          ],
+          "bass": []
+        }
+      ]
+    }
+  ],
+  "createdAt": 1791000000000,
+  "updatedAt": 1791000000000
+}

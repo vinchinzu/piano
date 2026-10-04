@@ -1,3 +1,4 @@
+import { defaultGuitarSettings, resolveGuitarPositions, guitarBeatCounts, type GuitarLayer } from '../models/guitar';
 import {
   Renderer,
   Stave,
@@ -23,6 +24,7 @@ import {
   getMeasureVoices,
   getNoteBeatValue,
   getTieIndexes,
+  getSoundingAccidental,
 } from '../models/song';
 import type { EditableScore, NoteEntry, SlurPlacement, StaffClef } from '../models/song';
 
@@ -149,6 +151,28 @@ export interface SelectedMeasure {
 
 export type NoteNameMode = 'off' | 'inside' | 'below';
 
+export interface FocusScoreOptions {
+  startMeasure: number;
+  availableHeight: number;
+}
+
+/** Keep both bars stable until playback reaches the next pair. */
+export function getFocusMeasureStart(measureIdx: number, measureCount: number): number {
+  const clamped = Math.max(0, Math.min(measureIdx, measureCount - 1));
+  return Math.floor(clamped / 2) * 2;
+}
+
+export function getFocusAccidentalHelpers(
+  note: NoteEntry,
+  keySignature: string,
+  printed: ReadonlyArray<string | null>,
+): Array<'b' | '#' | null> {
+  if (note.isRest || note.isSpacer || note.drumMidi) return note.keys.map(() => null);
+  return note.keys.map((_, index) => (
+    printed[index] ? null : getSoundingAccidental(note, keySignature, index)
+  ));
+}
+
 export function renderSong(
   container: HTMLDivElement,
   song: EditableScore,
@@ -157,6 +181,7 @@ export function renderSong(
   availableWidth = START_X + DEFAULT_STAVE_WIDTH * MAX_MEASURES_PER_ROW + 40,
   selectedMeasure?: SelectedMeasure | null,
   noteNameMode: NoteNameMode = 'off',
+  focus?: FocusScoreOptions,
 ): RenderResult {
   container.innerHTML = '';
   const noteElements: RenderResult['noteElements'] = new Map();
@@ -176,6 +201,9 @@ export function renderSong(
     hollow: boolean;
     placement: Exclude<NoteNameMode, 'off'>;
   }> = [];
+  const guitarLabels: Array<{ x: number; y: number; text: string; layer: GuitarLayer; noteId: string }> = [];
+  const guitarSettings = song.guitar ?? defaultGuitarSettings();
+  const isGuitar = song.instrumentMode === 'guitar';
   const fingerLabels: Array<{ x: number; y: number; text: string }> = [];
 
   const visibleClefs: StaffClef[] = song.staffLayout === 'bass-only'
@@ -184,26 +212,31 @@ export function renderSong(
       ? ['treble']
       : ['treble', 'bass'];
   const isSingleStaff = visibleClefs.length === 1;
-  const rowHeight = isSingleStaff ? SINGLE_ROW_HEIGHT : ROW_HEIGHT;
+  const startMeasure = focus ? getFocusMeasureStart(focus.startMeasure, song.measures.length) : 0;
+  const endMeasure = focus ? Math.min(startMeasure + 2, song.measures.length) : song.measures.length;
+  const rowHeight = focus ? (isSingleStaff ? 200 : 330) : isSingleStaff ? SINGLE_ROW_HEIGHT : ROW_HEIGHT;
+  const compactGuitar = isGuitar && !focus && availableWidth < 600;
+  const headerHeight = focus ? 0 : compactGuitar ? 50 : HEADER_HEIGHT;
+  const singleStaffOffset = compactGuitar ? 32 : SINGLE_STAFF_OFFSET;
 
   const layoutWidth = Math.max(START_X + MIN_STAVE_WIDTH + 40, availableWidth);
-  const measuresPerRow = Math.max(
+  const measuresPerRow = focus ? 2 : Math.max(
     1,
     Math.min(
       MAX_MEASURES_PER_ROW,
       Math.floor((layoutWidth - START_X - 40) / MIN_STAVE_WIDTH),
     ),
   );
-  const staveWidth = Math.min(
+  const staveWidth = focus ? 340 : Math.min(
     310,
     Math.max(
       MIN_STAVE_WIDTH,
       Math.floor((layoutWidth - START_X - 40) / measuresPerRow),
     ),
   );
-  const numRows = Math.max(1, Math.ceil(song.measures.length / measuresPerRow));
+  const numRows = Math.max(1, Math.ceil((endMeasure - startMeasure) / measuresPerRow));
   const totalWidth = START_X + staveWidth * measuresPerRow + 40;
-  const totalHeight = HEADER_HEIGHT + numRows * rowHeight + 30;
+  const totalHeight = headerHeight + numRows * rowHeight + 30;
 
   const renderer = new Renderer(container, Renderer.Backends.SVG);
   renderer.resize(totalWidth, totalHeight);
@@ -211,22 +244,25 @@ export function renderSong(
   context.setFont('Arial', 10);
 
   const title = song.title.trim() || 'Untitled';
-  context.save();
-  context.setFillStyle('#18181b');
-  let titleFontSize = 24;
-  context.setFont('Georgia', titleFontSize, 'bold');
-  let titleWidth = context.measureText(title).width;
-  while (titleFontSize > 14 && titleWidth > totalWidth - START_X * 2) {
-    titleFontSize -= 1;
+  if (!focus) {
+    context.save();
+    context.setFillStyle('#18181b');
+    const displayedTitle = compactGuitar ? title.replace(/^Guitar\s*[·:—-]\s*/i, '') : title;
+    let titleFontSize = compactGuitar ? 14 : 24;
     context.setFont('Georgia', titleFontSize, 'bold');
-    titleWidth = context.measureText(title).width;
+    let titleWidth = context.measureText(displayedTitle).width;
+    while (titleFontSize > 14 && titleWidth > totalWidth - START_X * 2) {
+      titleFontSize -= 1;
+      context.setFont('Georgia', titleFontSize, 'bold');
+      titleWidth = context.measureText(displayedTitle).width;
+    }
+    context.fillText(displayedTitle, Math.max(START_X, (totalWidth - titleWidth) / 2), compactGuitar ? 24 : TITLE_BASELINE);
+    context.setFont('Arial', 12, 'normal');
+    context.fillText(`♩ = ${song.tempo}`, START_X + 12, compactGuitar ? 43 : TEMPO_BASELINE);
+    context.restore();
   }
-  context.fillText(title, Math.max(START_X, (totalWidth - titleWidth) / 2), TITLE_BASELINE);
-  context.setFont('Arial', 12, 'normal');
-  context.fillText(`♩ = ${song.tempo}`, START_X + 12, TEMPO_BASELINE);
-  context.restore();
 
-  for (let mi = 0; mi < song.measures.length; mi++) {
+  for (let mi = startMeasure; mi < endMeasure; mi++) {
     const measure = song.measures[mi];
     const playbackAnchorCandidates: Array<{
       progress: number;
@@ -234,17 +270,17 @@ export function renderSong(
       kind: PlaybackAnchorKind;
     }> = [];
     const currentMeasureRegions: RenderResult['measureRegions'] = [];
-    const row = Math.floor(mi / measuresPerRow);
-    const col = mi % measuresPerRow;
+    const row = Math.floor((mi - startMeasure) / measuresPerRow);
+    const col = (mi - startMeasure) % measuresPerRow;
     const x = START_X + col * staveWidth;
     const staveYs: Record<StaffClef, number> = isSingleStaff
       ? {
-          treble: HEADER_HEIGHT + row * rowHeight + SINGLE_STAFF_OFFSET,
-          bass: HEADER_HEIGHT + row * rowHeight + SINGLE_STAFF_OFFSET,
+          treble: headerHeight + row * rowHeight + singleStaffOffset,
+          bass: headerHeight + row * rowHeight + singleStaffOffset,
         }
       : {
-          treble: HEADER_HEIGHT + row * rowHeight + TREBLE_OFFSET,
-          bass: HEADER_HEIGHT + row * rowHeight + BASS_OFFSET,
+          treble: headerHeight + row * rowHeight + (focus ? 28 : TREBLE_OFFSET),
+          bass: headerHeight + row * rowHeight + (focus ? 188 : BASS_OFFSET),
         };
     const staves: Partial<Record<StaffClef, Stave>> = {};
 
@@ -276,7 +312,7 @@ export function renderSong(
         if (displayClef !== 'percussion' && song.keySignature && song.keySignature !== 'C') {
           stave.addKeySignature(song.keySignature);
         }
-        if (mi === 0) {
+        if (mi === 0 || focus) {
           stave.addTimeSignature(`${song.timeSignature[0]}/${song.timeSignature[1]}`);
         }
       }
@@ -286,30 +322,37 @@ export function renderSong(
     }
 
     const firstClef = visibleClefs[0];
-    context.save();
-    context.setFont('Arial', 9, 'normal');
-    context.fillText(`${mi + 1}`, x + 3, staveYs[firstClef] - 4);
-    if (col === 0 && isSingleStaff) {
-      const labels = song.voiceLabels?.[firstClef];
-      context.setFont('Arial', 11, 'bold');
-      const upperLabel = getRenderedVoiceLabel(labels?.[0], song.name);
-      const lowerLabel = getRenderedVoiceLabel(labels?.[1], song.name);
-      if (upperLabel) context.fillText(upperLabel, x + 12, staveYs[firstClef] + UPPER_VOICE_LABEL_OFFSET);
-      if (lowerLabel) context.fillText(lowerLabel, x + 12, staveYs[firstClef] + LOWER_VOICE_LABEL_OFFSET);
-    } else if (col === 0) {
-      context.setFont('Arial', 11, 'bold');
-      visibleClefs.forEach((clef) => {
-        const label = getRenderedVoiceLabel(song.voiceLabels?.[clef]?.[0], song.name);
-        if (label) context.fillText(label, x + 12, staveYs[clef] + UPPER_VOICE_LABEL_OFFSET);
-      });
+    if (!focus) {
+      context.save();
+      context.setFont('Arial', 9, 'normal');
+      context.fillText(`${mi + 1}`, x + 3, staveYs[firstClef] - (isGuitar ? 18 : 4));
+      if (col === 0 && isSingleStaff) {
+        const labels = song.voiceLabels?.[firstClef];
+        context.setFont('Arial', 11, 'bold');
+        const upperLabel = getRenderedVoiceLabel(labels?.[0], song.name);
+        const lowerLabel = getRenderedVoiceLabel(labels?.[1], song.name);
+        if (upperLabel) context.fillText(upperLabel, x + 12, staveYs[firstClef] + UPPER_VOICE_LABEL_OFFSET);
+        if (lowerLabel) context.fillText(lowerLabel, x + 12, staveYs[firstClef] + LOWER_VOICE_LABEL_OFFSET);
+      } else if (col === 0) {
+        context.setFont('Arial', 11, 'bold');
+        visibleClefs.forEach((clef) => {
+          const label = getRenderedVoiceLabel(song.voiceLabels?.[clef]?.[0], song.name);
+          if (label) context.fillText(label, x + 12, staveYs[clef] + UPPER_VOICE_LABEL_OFFSET);
+        });
+      }
+      context.restore();
     }
-    context.restore();
 
     if (measure.chordSymbol) {
       context.save();
       context.setFillStyle('#1e3a8a');
-      context.setFont('Arial', 13, 'bold');
-      context.fillText(measure.chordSymbol, x + (col === 0 ? 78 : 18), staveYs[firstClef] - 6);
+      context.setFont('Arial', focus ? 19 : 13, 'bold');
+      const chordClef = focus && visibleClefs.includes('bass') ? 'bass' : firstClef;
+      context.fillText(
+        focus ? measure.chordSymbol.replace(/b/g, '♭').replace(/#/g, '♯') : measure.chordSymbol,
+        x + (focus ? 12 : col === 0 ? 78 : 18),
+        staveYs[chordClef] + (focus ? 10 : -6),
+      );
       context.restore();
     }
 
@@ -376,9 +419,18 @@ export function renderSong(
           }
 
           if (!note.isRest && !note.drumMidi) {
-            accidentalDisplay.get(note.id)?.forEach((accidental, index) => {
+            const printed = accidentalDisplay.get(note.id) ?? [];
+            printed.forEach((accidental, index) => {
               if (accidental) staveNote.addModifier(new Accidental(accidental), index);
             });
+            if (focus && displayClef === 'treble') {
+              getFocusAccidentalHelpers(note, song.keySignature, printed).forEach((accidental, index) => {
+                if (!accidental) return;
+                const helper = new Accidental(accidental);
+                helper.setStyle({ fillStyle: '#1d4ed8', strokeStyle: '#1d4ed8' });
+                staveNote.addModifier(helper, index);
+              });
+            }
           }
           if (note.dotted) Dot.buildAndAttach([staveNote]);
           note.articulations?.forEach((articulation) => {
@@ -431,7 +483,7 @@ export function renderSong(
       const voices = voiceData.map(({ voice }) => voice);
       new Formatter()
         .joinVoices(voices)
-        .format(voices, staveWidth - (col === 0 ? 80 : 30));
+        .format(voices, staveWidth - (col === 0 ? (focus ? 120 : 80) : 30));
 
       // Generate beams before notes are drawn. This lets VexFlow suppress the
       // individual eighth/sixteenth-note flags that a beam replaces.
@@ -501,7 +553,25 @@ export function renderSong(
               });
             }
           }
-          if (!note.isRest && note.fingers?.length) {
+          if (isGuitar && !note.isRest) {
+            const heads = vexNote.noteHeads;
+            const x = heads.reduce((sum, head) => sum + head.getAbsoluteX() + head.getWidth() / 2, 0) / heads.length;
+            const positions = resolveGuitarPositions(note, song.keySignature, guitarSettings);
+            const top = Math.min(stave.getYForLine(0), ...heads.map((head) => head.getY()));
+            const bottom = Math.max(stave.getYForLine(4), ...heads.map((head) => head.getY()));
+            positions.forEach((position, index) => {
+              if (!position) return;
+              const labelX = x + (index - (positions.length - 1) / 2) * 23;
+              if (guitarSettings.layers.strings) guitarLabels.push({ x: labelX, y: bottom + 23, text: String(position.string), layer: 'strings', noteId: note.id });
+              if (guitarSettings.layers.fingers) guitarLabels.push({ x: labelX, y: top - 24, text: String(position.finger), layer: 'fingers', noteId: note.id });
+              if (guitarSettings.layers.frets) guitarLabels.push({ x: labelX, y: top - 43, text: `fr ${position.fret}`, layer: 'frets', noteId: note.id });
+            });
+            if (guitarSettings.layers.beats && voiceIdx === 0) guitarLabels.push({
+              x, y: bottom + 46, layer: 'beats', noteId: note.id,
+              text: guitarBeatCounts(elapsedBeats - getNoteBeatValue(note), getNoteBeatValue(note), song.timeSignature[1]),
+            });
+          }
+          if (!isGuitar && !note.isRest && note.fingers?.length) {
             const placed = note.fingers.flatMap((finger, keyIdx) => {
               const head = vexNote.noteHeads[keyIdx];
               if (finger == null || !head) return [];
@@ -609,16 +679,28 @@ export function renderSong(
       });
   });
 
-  const drawTie = (startId: string, endId: string) => {
-    const start = renderedNotes.get(startId);
-    const end = renderedNotes.get(endId);
-    if (!start || !end || start.clef !== end.clef || start.voiceIdx !== end.voiceIdx) return;
+  const drawTie = (startSource: NoteEntry, endSource: NoteEntry) => {
+    const start = renderedNotes.get(startSource.id);
+    const end = renderedNotes.get(endSource.id);
+    if (!start && !end) return;
+    if ((!start || !end) && !focus) return;
+    if (start && end && (start.clef !== end.clef || start.voiceIdx !== end.voiceIdx)) return;
     const { firstIndexes, lastIndexes } = getTieIndexes(
-      start.source,
-      end.source,
+      startSource,
+      endSource,
       song.keySignature,
     );
     if (firstIndexes.length === 0) return;
+
+    if (!start || !end) {
+      new StaveTie({
+        firstNote: start?.note ?? null,
+        lastNote: end?.note ?? null,
+        firstIndexes,
+        lastIndexes,
+      }).setContext(context).draw();
+      return;
+    }
 
     if (start.row === end.row) {
       new StaveTie({
@@ -655,7 +737,7 @@ export function renderSong(
       ));
       notes.forEach((note, noteIndex) => {
         if (note.tieToNext && notes[noteIndex + 1]) {
-          drawTie(note.id, notes[noteIndex + 1].id);
+          drawTie(note, notes[noteIndex + 1]);
         }
       });
     }
@@ -785,8 +867,50 @@ export function renderSong(
     });
     svg.appendChild(fingerGroup);
   }
+  if (svg && guitarLabels.length) {
+    for (const layer of ['strings', 'frets', 'fingers', 'beats'] as const) {
+      const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      group.setAttribute('class', `guitar-layer guitar-layer-${layer}`);
+      group.setAttribute('aria-hidden', 'true');
+      group.setAttribute('pointer-events', 'none');
+      guitarLabels.filter((label) => label.layer === layer).forEach(({ x, y, text, noteId }) => {
+        const item = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        item.setAttribute('data-note-id', noteId);
+        if (layer === 'strings') {
+          const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          circle.setAttribute('cx', String(x)); circle.setAttribute('cy', String(y));
+          circle.setAttribute('r', '8'); circle.setAttribute('fill', '#fffef9');
+          circle.setAttribute('stroke', '#334155'); circle.setAttribute('stroke-width', '1.2');
+          item.appendChild(circle);
+        }
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', String(x)); label.setAttribute('y', String(y));
+        label.setAttribute('text-anchor', 'middle'); label.setAttribute('dominant-baseline', 'central');
+        label.setAttribute('fill', layer === 'fingers' ? '#1d4ed8' : '#334155');
+        label.setAttribute('font-family', 'Arial, sans-serif'); label.setAttribute('font-size', '11');
+        label.setAttribute('font-weight', layer === 'fingers' ? '700' : '500');
+        label.textContent = text; item.appendChild(label); group.appendChild(item);
+      });
+      svg.appendChild(group);
+    }
+  }
   svg?.setAttribute('role', 'img');
   svg?.setAttribute('aria-label', `Sheet music for ${title}`);
+  if (svg && focus) {
+    // Include ledger lines, stems, and annotations that extend outside the
+    // nominal staff geometry, so tall/dense passages are never cropped.
+    const bounds = svg.getBBox();
+    const left = Math.min(0, bounds.x - 16);
+    const top = Math.min(0, bounds.y - 16);
+    const width = Math.max(totalWidth, bounds.x + bounds.width + 16) - left;
+    const height = Math.max(totalHeight, bounds.y + bounds.height + 16) - top;
+    const scale = Math.max(0.1, Math.min(availableWidth / width, focus.availableHeight / height));
+    svg.setAttribute('viewBox', `${left} ${top} ${width} ${height}`);
+    svg.style.width = `${width * scale}px`;
+    svg.style.height = `${height * scale}px`;
+    svg.setAttribute('data-focus-start', String(startMeasure));
+    svg.setAttribute('data-focus-count', String(endMeasure - startMeasure));
+  }
 
   return { noteElements, measureRegions, totalHeight };
 }

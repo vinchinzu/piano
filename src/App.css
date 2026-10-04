@@ -37,55 +37,78 @@
 }
 
 .app.focus-mode .score-container {
-  padding: 28px 16px 12px;
-  background: #11111b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+  padding: 80px 24px 20px;
+  background: #fffef9;
 }
 
 .app.focus-mode .piano-keys-area {
-  height: clamp(84px, 11vh, 108px);
+  height: clamp(112px, 18vh, 160px);
+}
+
+.app.focus-mode .score-container svg {
+  flex: none;
+  border: none;
+  box-shadow: none;
+}
+
+.app.focus-mode .piano-black-key {
+  width: clamp(18px, 2.1vw, 30px);
+}
+
+.app.focus-mode .white-key-label,
+.app.focus-mode .black-key-label {
+  font-size: clamp(11px, 1.2vw, 16px);
+  bottom: 10px;
 }
 
 .focus-dock {
   position: fixed;
-  top: 10px;
-  right: 12px;
+  top: 0;
+  left: 0;
+  right: 0;
   z-index: 40;
   display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: calc(100vw - 24px);
-  padding: 6px 8px;
-  border: 1px solid #45475a;
-  border-radius: 999px;
-  background: rgba(24, 24, 37, 0.92);
+  gap: 10px;
+  min-height: 64px;
+  padding: 10px 24px;
+  border-bottom: 1px solid #313244;
+  background: #181825;
   color: #cdd6f4;
-  box-shadow: 0 8px 24px rgba(17, 17, 27, 0.35);
 }
 
 .focus-dock-title {
-  max-width: 220px;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
-  font-size: 13px;
+  font-size: clamp(15px, 1.8vw, 23px);
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.focus-dock-bar {
+.focus-dock-tempo {
   color: #a6adc8;
-  font-size: 12px;
+  margin-right: 12px;
+  font-size: 16px;
   white-space: nowrap;
 }
 
 .focus-dock button {
-  min-height: 28px;
-  padding: 0 10px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 14px;
   border: 1px solid #45475a;
   border-radius: 999px;
   background: #313244;
   color: #cdd6f4;
   font: inherit;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 700;
   cursor: pointer;
 }

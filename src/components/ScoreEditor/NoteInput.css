@@ -216,6 +216,12 @@
   background: #cde4ff;
 }
 
+/* Score guidance switches precisely at note boundaries. */
+.playback-guidance .piano-white-key,
+.playback-guidance .piano-black-key {
+  transition: none;
+}
+
 .piano-white-key:active {
   background: #a0c4f0;
 }
@@ -230,27 +236,6 @@
   background: #fda4af;
   border-color: #e11d48;
   box-shadow: inset 0 0 0 2px #e11d48;
-}
-
-.piano-white-key.fading {
-  animation: piano-white-key-fade 0.9s ease forwards;
-}
-
-@keyframes piano-white-key-fade {
-  from {
-    background: #fda4af;
-    border-color: #e11d48;
-    box-shadow: inset 0 0 0 2px #e11d48;
-  }
-  to {
-    background: #e8e8e8;
-    border-color: #aaa;
-    box-shadow: inset 0 0 0 0 #e11d48;
-  }
-}
-
-.piano-white-key.selected.playing {
-  background: linear-gradient(180deg, #89b4fa 0%, #f38ba8 100%);
 }
 
 .percussion-keyboard .drum-unused {
@@ -333,27 +318,6 @@
   background: #fb7185;
   border-color: #fff1f2;
   box-shadow: 0 0 0 2px #fb7185;
-}
-
-.piano-black-key.fading {
-  animation: piano-black-key-fade 0.9s ease forwards;
-}
-
-@keyframes piano-black-key-fade {
-  from {
-    background: #fb7185;
-    border-color: #fff1f2;
-    box-shadow: 0 0 0 2px #fb7185;
-  }
-  to {
-    background: #2a2a2a;
-    border-color: #111;
-    box-shadow: 0 0 0 0 #fb7185;
-  }
-}
-
-.piano-black-key.selected.playing {
-  background: linear-gradient(180deg, #89b4fa, #f38ba8);
 }
 
 .black-key-label {
